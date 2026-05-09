@@ -1,5 +1,10 @@
 const STORAGE_KEY = "exampulse.v1";
 const ANALYZER_VERSION = 2;
+const SUPABASE_URL = "https://woostdadplbikfwfiqjd.supabase.co";
+const SUPABASE_KEY = "sb_publishable_7-rfzQ6TU8nYlADkHEkS9Q_zUHPAOKD";
+const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_KEY);
+let cloudReady = false;
+let syncTimer = null;
 
 const TOPIC_LIBRARY = {
   "Sistemas Digitais": [
@@ -178,6 +183,7 @@ function persist() {
   state.selectedSubjectId = selectedSubjectId;
   state.analyzerVersion = ANALYZER_VERSION;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  if (cloudReady) scheduleCloudSync();
 }
 
 function getSubject() {
@@ -187,10 +193,20 @@ function getSubject() {
 function normalizeState(nextState) {
   nextState.subjects = nextState.subjects.map((subject) => ({
     ...subject,
+    id: isUuid(subject.id) ? subject.id : crypto.randomUUID(),
     customTopics: Array.isArray(subject.customTopics) ? subject.customTopics : [],
-    exercises: Array.isArray(subject.exercises) ? subject.exercises : [],
+    exercises: Array.isArray(subject.exercises)
+      ? subject.exercises.map((exercise) => ({
+          ...exercise,
+          id: isUuid(exercise.id) ? exercise.id : crypto.randomUUID(),
+        }))
+      : [],
   }));
   return nextState;
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value));
 }
 
 function reanalyzeState(nextState) {
@@ -512,6 +528,137 @@ function showImportMessage(message) {
 function showPathMessage(message) {
   els.analysisPreview.textContent = message;
   els.pathImportStatus.textContent = message;
+}
+
+function scheduleCloudSync() {
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncToSupabase, 700);
+}
+
+async function initSupabaseSync() {
+  if (!supabaseClient) {
+    els.analysisPreview.textContent = "Supabase nao carregou; a app continua em modo local.";
+    return;
+  }
+
+  try {
+    const cloudState = await loadFromSupabase();
+    cloudReady = true;
+
+    if (cloudState.subjects.length) {
+      state.subjects = cloudState.subjects;
+      selectedSubjectId = cloudState.selectedSubjectId || state.subjects[0].id;
+      render();
+      els.analysisPreview.textContent = "Dados carregados da Supabase.";
+      return;
+    }
+
+    await syncToSupabase();
+    els.analysisPreview.textContent = "Supabase ligada. Os proximos exercicios ficam guardados online.";
+  } catch (error) {
+    els.analysisPreview.textContent = `Nao consegui ligar a Supabase: ${error.message}`;
+  }
+}
+
+async function loadFromSupabase() {
+  const { data: subjects, error: subjectError } = await supabaseClient
+    .from("subjects")
+    .select("*")
+    .order("created_at", { ascending: true });
+  if (subjectError) throw subjectError;
+
+  const { data: exercises, error: exerciseError } = await supabaseClient
+    .from("exercises")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (exerciseError) throw exerciseError;
+
+  const { data: topics, error: topicError } = await supabaseClient
+    .from("topics")
+    .select("*")
+    .order("created_at", { ascending: true });
+  if (topicError) throw topicError;
+
+  return {
+    analyzerVersion: ANALYZER_VERSION,
+    selectedSubjectId: subjects[0]?.id,
+    subjects: subjects.map((subject) => ({
+      id: subject.id,
+      name: subject.name,
+      customTopics: topics
+        .filter((topic) => topic.subject_id === subject.id)
+        .map((topic) => ({
+          name: topic.name,
+          keywords: topic.keywords || [],
+          custom: topic.is_custom,
+        })),
+      exercises: exercises
+        .filter((exercise) => exercise.subject_id === subject.id)
+        .map((exercise) => ({
+          id: exercise.id,
+          text: exercise.text,
+          academicYear: exercise.academic_year,
+          yearStart: exercise.year_start,
+          semester: exercise.semester,
+          month: exercise.month,
+          assessment: exercise.assessment,
+          topics: exercise.topic_names || [],
+          difficulty: exercise.difficulty,
+          type: exercise.exercise_type,
+          keywords: exercise.keywords || [],
+          createdAt: exercise.created_at,
+        })),
+    })),
+  };
+}
+
+async function syncToSupabase() {
+  if (!supabaseClient) return;
+
+  const subjects = state.subjects.map((subject) => ({
+    id: subject.id,
+    name: subject.name,
+  }));
+
+  const topics = state.subjects.flatMap((subject) =>
+    (subject.customTopics || []).map((topic) => ({
+      subject_id: subject.id,
+      name: topic.name,
+      keywords: topic.keywords || [],
+      is_custom: Boolean(topic.custom),
+    }))
+  );
+
+  const exercises = state.subjects.flatMap((subject) =>
+    subject.exercises.map((exercise) => ({
+      id: exercise.id,
+      subject_id: subject.id,
+      topic_names: exercise.topics || [],
+      text: exercise.text,
+      academic_year: exercise.academicYear,
+      year_start: exercise.yearStart,
+      semester: exercise.semester,
+      month: exercise.month,
+      assessment: exercise.assessment,
+      difficulty: exercise.difficulty,
+      exercise_type: exercise.type,
+      keywords: exercise.keywords || [],
+      created_at: exercise.createdAt,
+    }))
+  );
+
+  const { error: subjectError } = await supabaseClient.from("subjects").upsert(subjects);
+  if (subjectError) throw subjectError;
+
+  if (topics.length) {
+    const { error: topicError } = await supabaseClient.from("topics").upsert(topics, { onConflict: "subject_id,name" });
+    if (topicError) throw topicError;
+  }
+
+  if (exercises.length) {
+    const { error: exerciseError } = await supabaseClient.from("exercises").upsert(exercises);
+    if (exerciseError) throw exerciseError;
+  }
 }
 
 async function extractTextFromFile(file) {
@@ -1212,3 +1359,4 @@ els.importFile.addEventListener("change", async (event) => {
 });
 
 render();
+initSupabaseSync();
