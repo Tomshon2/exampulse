@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="pt">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ExamPulse</title>
+    <link rel="stylesheet" href="styles.css?v=6">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Disciplinas">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+          <div>
+            <strong>ExamPulse</strong>
+            <small>previsao por exercicios</small>
+          </div>
+        </div>
+
+        <form id="subject-form" class="subject-form" onsubmit="return false">
+          <label for="new-subject">Nova disciplina</label>
+          <div class="inline-control">
+            <input id="new-subject" name="newSubject" type="text" placeholder="Ex: Sistemas Digitais" autocomplete="off">
+            <button class="icon-button" type="submit" aria-label="Adicionar disciplina" title="Adicionar disciplina">+</button>
+          </div>
+        </form>
+
+        <button id="manage-subjects-button" class="manage-button" type="button">Gerir disciplinas</button>
+        <div id="subject-list" class="subject-list"></div>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Analise de exames anteriores</p>
+            <h1 id="subject-title">Sistemas Digitais</h1>
+          </div>
+          <div class="top-actions">
+            <button id="export-button" class="secondary-button" type="button">Guardar backup</button>
+            <label class="secondary-button file-trigger" title="Importa apenas backups JSON criados nesta app">
+              Restaurar backup
+              <input id="import-file" type="file" accept="application/json">
+            </label>
+          </div>
+        </header>
+
+        <section class="summary-grid" aria-label="Resumo">
+          <div class="metric">
+            <span>Exercicios</span>
+            <strong id="metric-exercises">0</strong>
+          </div>
+          <div class="metric">
+            <span>Temas detetados</span>
+            <strong id="metric-topics">0</strong>
+          </div>
+          <div class="metric">
+            <span>Anos analisados</span>
+            <strong id="metric-years">0</strong>
+          </div>
+          <div class="metric">
+            <span>Tema dominante</span>
+            <strong id="metric-main-topic">-</strong>
+          </div>
+        </section>
+
+        <nav class="tabs" aria-label="Vistas">
+          <button class="tab active" type="button" data-tab="paste">Colar exercicios</button>
+          <button class="tab" type="button" data-tab="predictions">Mais provavel</button>
+          <button class="tab" type="button" data-tab="history">Historico</button>
+        </nav>
+
+        <section id="paste-panel" class="panel active-panel">
+          <div class="panel-layout">
+            <form id="exercise-form" class="entry-form" onsubmit="return false">
+              <div class="form-grid">
+                <label>
+                  Ano letivo
+                  <input name="academicYear" type="text" placeholder="2024/2025" required>
+                </label>
+                <label>
+                  Semestre
+                  <select name="semester">
+                    <option value="1">1. semestre</option>
+                    <option value="2">2. semestre</option>
+                    <option value="anual">Anual</option>
+                  </select>
+                </label>
+                <label>
+                  Mes
+                  <select name="month">
+                    <option>Janeiro</option>
+                    <option>Fevereiro</option>
+                    <option>Marco</option>
+                    <option>Abril</option>
+                    <option>Maio</option>
+                    <option>Junho</option>
+                    <option>Julho</option>
+                    <option>Setembro</option>
+                    <option>Outubro</option>
+                    <option>Novembro</option>
+                    <option>Dezembro</option>
+                  </select>
+                </label>
+                <label>
+                  Avaliacao
+                  <select name="assessment">
+                    <option>Exame normal</option>
+                    <option>Recurso</option>
+                    <option>Frequencia</option>
+                    <option>Teste</option>
+                    <option>Outro</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="document-import">
+                <div class="file-drop">
+                  <label for="document-file">Escolher exames/documentos</label>
+                  <input id="document-file" type="file" accept=".txt,.md,.pdf,.docx,.png,.jpg,.jpeg,.webp,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,image/webp" multiple>
+                  <small id="document-file-status">PDF, Word, TXT ou imagem. Depois a app analisa automaticamente.</small>
+                </div>
+                <button id="document-import-button" class="secondary-button" type="button">Importar e analisar</button>
+              </div>
+
+              <div class="path-import">
+                <label for="local-file-path">Ou importar por caminho local</label>
+                <div class="path-control">
+                  <input id="local-file-path" type="text" value="C:\Users\asust\Downloads\freq2_2022.pdf" placeholder="C:\Users\asust\Downloads\freq2_2022.pdf">
+                  <button id="path-import-button" class="secondary-button" type="button">Importar caminho</button>
+                </div>
+                <small id="path-import-status">Usa isto se o browser interno nao abrir a janela de escolher ficheiro.</small>
+              </div>
+
+              <label class="wide-label">
+                Exercicios que sairam
+                <textarea name="exerciseText" rows="13" placeholder="1. Simplifique a funcao logica...&#10;&#10;2. Desenhe um contador sincrono...&#10;&#10;3. Considere uma memoria ROM..."></textarea>
+              </label>
+
+              <div class="form-footer">
+                <p id="analysis-preview">A classificacao aparece depois de guardar.</p>
+                <button class="primary-button" type="submit">Analisar e guardar</button>
+              </div>
+            </form>
+
+            <aside class="insight-panel">
+              <div class="forecast-card">
+                <span class="status-dot"></span>
+                <p>Prioridade atual</p>
+                <strong id="quick-priority">Sem dados</strong>
+              </div>
+              <div id="topic-preview" class="topic-preview"></div>
+            </aside>
+          </div>
+        </section>
+
+        <section id="predictions-panel" class="panel">
+          <div class="prediction-layout">
+            <div>
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Ranking de estudo</p>
+                  <h2>Temas com maior probabilidade</h2>
+                </div>
+                <button id="seed-button" class="secondary-button" type="button">Adicionar exemplo</button>
+              </div>
+              <div id="prediction-list" class="prediction-list"></div>
+            </div>
+            <aside class="suggestions">
+              <h2>Exercicios provaveis</h2>
+              <div id="exercise-suggestions"></div>
+            </aside>
+          </div>
+        </section>
+
+        <section id="history-panel" class="panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Base de conhecimento</p>
+              <h2>Exercicios guardados</h2>
+            </div>
+            <button id="clear-subject" class="danger-button" type="button">Limpar disciplina</button>
+          </div>
+          <div id="history-list" class="history-list"></div>
+        </section>
+      </main>
+    </div>
+
+    <template id="empty-state-template">
+      <div class="empty-state">
+        <div class="empty-visual" aria-hidden="true">
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <h3>Ainda nao ha exercicios suficientes</h3>
+        <p>Depois de colares exames antigos, a app calcula prioridades por tema e sugere o que treinar primeiro.</p>
+      </div>
+    </template>
+
+    <div id="subject-modal" class="modal-backdrop" aria-hidden="true">
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="subject-modal-title">
+        <header class="modal-header">
+          <div>
+            <p class="eyebrow">Menu de disciplinas</p>
+            <h2 id="subject-modal-title">Todas as disciplinas</h2>
+          </div>
+          <button id="close-subject-modal" class="modal-close" type="button" aria-label="Fechar menu">x</button>
+        </header>
+        <div id="subject-manager-list" class="subject-manager-list"></div>
+        <p id="subject-manager-note" class="manager-note"></p>
+      </section>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+      if (window.pdfjsLib) {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      }
+    </script>
+    <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="app.js?v=6"></script>
+  </body>
+</html>
