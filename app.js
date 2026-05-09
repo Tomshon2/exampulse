@@ -126,9 +126,6 @@ const els = {
   documentFiles: document.querySelector("#document-file"),
   documentFileStatus: document.querySelector("#document-file-status"),
   documentImportButton: document.querySelector("#document-import-button"),
-  localFilePath: document.querySelector("#local-file-path"),
-  pathImportButton: document.querySelector("#path-import-button"),
-  pathImportStatus: document.querySelector("#path-import-status"),
   exerciseForm: document.querySelector("#exercise-form"),
   analysisPreview: document.querySelector("#analysis-preview"),
   topicPreview: document.querySelector("#topic-preview"),
@@ -498,56 +495,6 @@ async function importDocumentFiles() {
   }
 }
 
-async function importLocalPath() {
-  const filePath = els.localFilePath.value.trim();
-  if (!filePath) {
-    showPathMessage("Escreve o caminho completo do ficheiro.");
-    return;
-  }
-
-  const metadata = getExerciseMetadataFromForm();
-  if (!metadata.academicYear.trim()) {
-    metadata.academicYear = guessCurrentAcademicYear();
-  }
-
-  els.pathImportButton.disabled = true;
-  els.pathImportButton.textContent = "A importar...";
-  showPathMessage("A pedir ao servidor local para ler o ficheiro...");
-
-  try {
-    const response = await fetch("http://127.0.0.1:4321/api/import-local", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: filePath }),
-    });
-    const result = await response.json();
-
-    if (!result.ok) {
-      throw new Error(result.error || "Nao foi possivel importar");
-    }
-
-    const added = addExercisesFromForm({ ...metadata, exerciseText: result.text, sourceName: result.name });
-    render();
-    activateTab(added.length ? "predictions" : "paste");
-
-    if (!added.length) {
-      showPathMessage((added.skippedDuplicates || 0)
-        ? `Li ${result.name}, mas estes exercicios ja estavam guardados. Ignorei ${added.skippedDuplicates} duplicados.`
-        : `Li ${result.name}, mas nao encontrei exercicios separados.`);
-      return;
-    }
-
-    const topics = [...new Set(added.flatMap((exercise) => exercise.topics))].join(", ");
-    const duplicateNote = added.skippedDuplicates ? ` Ignorei ${added.skippedDuplicates} duplicados.` : "";
-    showPathMessage(`${added.length} exercicios importados de ${result.name}. Materias: ${topics}.${duplicateNote}`);
-  } catch (error) {
-    showPathMessage(`Nao consegui importar por caminho. Abre http://127.0.0.1:4321 e garante que o servidor esta ligado. Detalhe: ${error.message}`);
-  } finally {
-    els.pathImportButton.disabled = false;
-    els.pathImportButton.textContent = "Importar caminho";
-  }
-}
-
 function getExerciseMetadataFromForm() {
   const formData = Object.fromEntries(new FormData(els.exerciseForm).entries());
   return {
@@ -568,11 +515,6 @@ function guessCurrentAcademicYear() {
 function showImportMessage(message) {
   els.analysisPreview.textContent = message;
   els.documentFileStatus.textContent = message;
-}
-
-function showPathMessage(message) {
-  els.analysisPreview.textContent = message;
-  els.pathImportStatus.textContent = message;
 }
 
 function scheduleCloudSync() {
@@ -1047,7 +989,7 @@ function render() {
   renderMetrics(subject, predictions);
   renderPreview(predictions);
   renderPredictions(predictions);
-  renderHistory(subject);
+  renderExercisesByTopic(subject);
   persist();
 }
 
@@ -1200,6 +1142,62 @@ function emptyState() {
   return document.querySelector("#empty-state-template").content.firstElementChild.cloneNode(true);
 }
 
+function renderExercisesByTopic(subject) {
+  els.historyList.innerHTML = "";
+
+  if (!subject.exercises.length) {
+    els.historyList.append(emptyState());
+    return;
+  }
+
+  const byTopic = new Map();
+
+  for (const exercise of subject.exercises) {
+    const primaryTopic = exercise.topics?.[0] || "Tema por confirmar";
+    if (!byTopic.has(primaryTopic)) byTopic.set(primaryTopic, []);
+    byTopic.get(primaryTopic).push(exercise);
+  }
+
+  const sortedGroups = [...byTopic.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+
+  for (const [topic, exercises] of sortedGroups) {
+    const group = document.createElement("section");
+    group.className = "topic-group";
+    group.innerHTML = `
+      <header class="topic-group-header">
+        <div>
+          <h3>${escapeHtml(topic)}</h3>
+          <p>${exercises.length} exercicio${exercises.length > 1 ? "s" : ""} guardado${exercises.length > 1 ? "s" : ""} neste tema</p>
+        </div>
+      </header>
+      <div class="topic-exercises"></div>
+    `;
+
+    const list = group.querySelector(".topic-exercises");
+    for (const exercise of exercises) {
+      const card = document.createElement("article");
+      card.className = "history-card";
+      card.innerHTML = `
+        <header>
+          <div>
+            <strong>${escapeHtml(exercise.type || "Exercicio")}</strong>
+            <div class="mini-label">${escapeHtml(exercise.academicYear)} · ${escapeHtml(exercise.semester)}. semestre · ${escapeHtml(exercise.month)} · ${escapeHtml(exercise.assessment)}</div>
+          </div>
+          <button class="delete-button" type="button" data-delete="${exercise.id}">Remover</button>
+        </header>
+        <p>${escapeHtml(cleanExerciseText(exercise.text))}</p>
+        <div class="prediction-meta">
+          <span class="pill">${escapeHtml(exercise.difficulty)}</span>
+          <span class="pill">${escapeHtml((exercise.keywords || []).slice(0, 3).join(", ") || topic)}</span>
+        </div>
+      `;
+      list.append(card);
+    }
+
+    els.historyList.append(group);
+  }
+}
+
 function clip(text, maxLength) {
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}...` : text;
 }
@@ -1297,8 +1295,6 @@ els.subjectForm.addEventListener("submit", (event) => {
 });
 
 els.documentImportButton.addEventListener("click", importDocumentFiles);
-
-els.pathImportButton.addEventListener("click", importLocalPath);
 
 els.documentFiles.addEventListener("change", () => {
   const files = [...(els.documentFiles.files || [])];

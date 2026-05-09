@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>ExamPulse</title>
-    <link rel="stylesheet" href="styles.css?v=6">
+    <link rel="stylesheet" href="styles.css?v=9">
   </head>
   <body>
     <div class="app-shell">
@@ -68,7 +68,7 @@
         <nav class="tabs" aria-label="Vistas">
           <button class="tab active" type="button" data-tab="paste">Colar exercicios</button>
           <button class="tab" type="button" data-tab="predictions">Mais provavel</button>
-          <button class="tab" type="button" data-tab="history">Historico</button>
+          <button class="tab" type="button" data-tab="history">Exercicios</button>
         </nav>
 
         <section id="paste-panel" class="panel active-panel">
@@ -124,15 +124,6 @@
                 <button id="document-import-button" class="secondary-button" type="button">Importar e analisar</button>
               </div>
 
-              <div class="path-import">
-                <label for="local-file-path">Ou importar por caminho local</label>
-                <div class="path-control">
-                  <input id="local-file-path" type="text" value="C:\Users\asust\Downloads\freq2_2022.pdf" placeholder="C:\Users\asust\Downloads\freq2_2022.pdf">
-                  <button id="path-import-button" class="secondary-button" type="button">Importar caminho</button>
-                </div>
-                <small id="path-import-status">Usa isto se o browser interno nao abrir a janela de escolher ficheiro.</small>
-              </div>
-
               <label class="wide-label">
                 Exercicios que sairam
                 <textarea name="exerciseText" rows="13" placeholder="1. Simplifique a funcao logica...&#10;&#10;2. Desenhe um contador sincrono...&#10;&#10;3. Considere uma memoria ROM..."></textarea>
@@ -178,7 +169,7 @@
           <div class="section-heading">
             <div>
               <p class="eyebrow">Base de conhecimento</p>
-              <h2>Exercicios guardados</h2>
+              <h2>Exercicios separados por tema</h2>
             </div>
             <button id="clear-subject" class="danger-button" type="button">Limpar disciplina</button>
           </div>
@@ -220,6 +211,6 @@
     <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="app.js?v=8"></script>
+    <script src="app.js?v=9"></script>
   </body>
 </html>

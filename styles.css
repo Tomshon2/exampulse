@@ -386,41 +386,6 @@ h2 {
   line-height: 1.35;
 }
 
-.path-import {
-  display: grid;
-  gap: 8px;
-  margin-top: 12px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fffdf9;
-}
-
-.path-import label {
-  font-weight: 900;
-  color: var(--teal-dark);
-}
-
-.path-control {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-}
-
-.path-control input {
-  width: 100%;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
-  color: var(--ink);
-  padding: 12px 13px;
-}
-
-.path-import small {
-  color: var(--muted);
-  line-height: 1.35;
-}
-
 textarea {
   resize: vertical;
   line-height: 1.45;
@@ -611,6 +576,30 @@ textarea {
   margin-bottom: 10px;
 }
 
+.topic-group {
+  display: grid;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.topic-group-header h3 {
+  margin: 0;
+}
+
+.topic-group-header p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.topic-exercises {
+  display: grid;
+  gap: 10px;
+}
+
 .mini-label {
   color: var(--muted);
   font-size: 0.78rem;
@@ -799,10 +788,6 @@ textarea {
 
   .document-import {
     display: flex;
-  }
-
-  .path-control {
-    grid-template-columns: 1fr;
   }
 
   .subject-manager-row {
