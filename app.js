@@ -191,7 +191,7 @@ function getSubject() {
 }
 
 function normalizeState(nextState) {
-  nextState.subjects = nextState.subjects.map((subject) => ({
+  nextState.subjects = nextState.subjects.map((subject) => dedupeSubjectExercises({
     ...subject,
     id: isUuid(subject.id) ? subject.id : crypto.randomUUID(),
     customTopics: Array.isArray(subject.customTopics) ? subject.customTopics : [],
@@ -199,6 +199,7 @@ function normalizeState(nextState) {
       ? subject.exercises.map((exercise) => ({
           ...exercise,
           id: isUuid(exercise.id) ? exercise.id : crypto.randomUUID(),
+          signature: exercise.signature || getExerciseSignature(exercise.text || ""),
         }))
       : [],
   }));
@@ -214,10 +215,23 @@ function reanalyzeState(nextState) {
     subject.customTopics = [];
     subject.exercises = subject.exercises.map((exercise) => {
       const analysis = classifyExercise(exercise.text, subject);
-      return { ...exercise, ...analysis };
+      return { ...exercise, signature: getExerciseSignature(exercise.text), ...analysis };
     });
+    subject.exercises = dedupeSubjectExercises(subject).exercises;
   }
   nextState.analyzerVersion = ANALYZER_VERSION;
+}
+
+function dedupeSubjectExercises(subject) {
+  const seen = new Set();
+  subject.exercises = subject.exercises.filter((exercise) => {
+    const signature = exercise.signature || getExerciseSignature(exercise.text || "");
+    if (!signature || seen.has(signature)) return false;
+    seen.add(signature);
+    exercise.signature = signature;
+    return true;
+  });
+  return subject;
 }
 
 function slugify(value) {
@@ -384,25 +398,48 @@ function addExercisesFromForm(formData) {
   const subject = getSubject();
   const pieces = splitExercises(formData.exerciseText);
   const now = new Date().toISOString();
+  const existingSignatures = new Set(subject.exercises.map((exercise) => getExerciseSignature(exercise.text)));
 
-  const newExercises = pieces.map((text) => {
+  const newExercises = [];
+  let skippedDuplicates = 0;
+
+  for (const text of pieces) {
+    const signature = getExerciseSignature(text);
+    if (!signature || existingSignatures.has(signature)) {
+      skippedDuplicates += 1;
+      continue;
+    }
+
+    existingSignatures.add(signature);
     const analysis = classifyExercise(text, subject);
-    return {
+    newExercises.push({
       id: crypto.randomUUID(),
       text,
+      signature,
       academicYear: formData.academicYear,
       yearStart: parseYearStart(formData.academicYear),
       semester: formData.semester,
       month: formData.month,
       assessment: formData.assessment,
+      sourceName: formData.sourceName || "",
       createdAt: now,
       ...analysis,
-    };
-  });
+    });
+  }
 
   subject.exercises.unshift(...newExercises);
   persist();
+  newExercises.skippedDuplicates = skippedDuplicates;
   return newExercises;
+}
+
+function getExerciseSignature(text) {
+  return normalizeText(text)
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\b(enunciado|avaliacao|modelo|pagina|curso|engenharia|informatica|ano|letivo|unidade|curricular)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 900);
 }
 
 async function importDocumentFiles() {
@@ -423,14 +460,16 @@ async function importDocumentFiles() {
 
   try {
     let totalExercises = 0;
+    let totalSkipped = 0;
     const topicNames = new Set();
     const failedFiles = [];
 
     for (const file of files) {
       try {
         const text = await extractTextFromFile(file);
-        const added = addExercisesFromForm({ ...metadata, exerciseText: text });
+        const added = addExercisesFromForm({ ...metadata, exerciseText: text, sourceName: file.name });
         totalExercises += added.length;
+        totalSkipped += added.skippedDuplicates || 0;
         added.flatMap((exercise) => exercise.topics).forEach((topic) => topicNames.add(topic));
       } catch (error) {
         failedFiles.push(`${file.name} (${error.message})`);
@@ -444,12 +483,15 @@ async function importDocumentFiles() {
     if (!totalExercises) {
       showImportMessage(failedFiles.length
         ? `Nao consegui extrair exercicios de: ${failedFiles.join(", ")}.`
-        : "Nao encontrei exercicios claros no documento.");
+        : totalSkipped
+          ? `Documento ja importado. Ignorei ${totalSkipped} exercicios duplicados.`
+          : "Nao encontrei exercicios claros no documento.");
       return;
     }
 
     const failedNote = failedFiles.length ? ` Nao lidos: ${failedFiles.join(", ")}.` : "";
-    showImportMessage(`${totalExercises} exercicios importados. Materias detetadas/criadas: ${[...topicNames].join(", ")}.${failedNote}`);
+    const duplicateNote = totalSkipped ? ` Ignorei ${totalSkipped} duplicados.` : "";
+    showImportMessage(`${totalExercises} exercicios importados. Materias detetadas/criadas: ${[...topicNames].join(", ")}.${duplicateNote}${failedNote}`);
   } finally {
     els.documentImportButton.disabled = false;
     els.documentImportButton.textContent = "Importar e analisar";
@@ -484,17 +526,20 @@ async function importLocalPath() {
       throw new Error(result.error || "Nao foi possivel importar");
     }
 
-    const added = addExercisesFromForm({ ...metadata, exerciseText: result.text });
+    const added = addExercisesFromForm({ ...metadata, exerciseText: result.text, sourceName: result.name });
     render();
     activateTab(added.length ? "predictions" : "paste");
 
     if (!added.length) {
-      showPathMessage(`Li ${result.name}, mas nao encontrei exercicios separados.`);
+      showPathMessage((added.skippedDuplicates || 0)
+        ? `Li ${result.name}, mas estes exercicios ja estavam guardados. Ignorei ${added.skippedDuplicates} duplicados.`
+        : `Li ${result.name}, mas nao encontrei exercicios separados.`);
       return;
     }
 
     const topics = [...new Set(added.flatMap((exercise) => exercise.topics))].join(", ");
-    showPathMessage(`${added.length} exercicios importados de ${result.name}. Materias: ${topics}.`);
+    const duplicateNote = added.skippedDuplicates ? ` Ignorei ${added.skippedDuplicates} duplicados.` : "";
+    showPathMessage(`${added.length} exercicios importados de ${result.name}. Materias: ${topics}.${duplicateNote}`);
   } catch (error) {
     showPathMessage(`Nao consegui importar por caminho. Abre http://127.0.0.1:4321 e garante que o servidor esta ligado. Detalhe: ${error.message}`);
   } finally {
@@ -546,7 +591,7 @@ async function initSupabaseSync() {
     cloudReady = true;
 
     if (cloudState.subjects.length) {
-      state.subjects = cloudState.subjects;
+      state.subjects = normalizeState(cloudState).subjects;
       selectedSubjectId = cloudState.selectedSubjectId || state.subjects[0].id;
       render();
       els.analysisPreview.textContent = "Dados carregados da Supabase.";
@@ -606,6 +651,8 @@ async function loadFromSupabase() {
           difficulty: exercise.difficulty,
           type: exercise.exercise_type,
           keywords: exercise.keywords || [],
+          signature: getExerciseSignature(exercise.text),
+          sourceName: exercise.source_name || "",
           createdAt: exercise.created_at,
         })),
     })),
@@ -643,6 +690,7 @@ async function syncToSupabase() {
       difficulty: exercise.difficulty,
       exercise_type: exercise.type,
       keywords: exercise.keywords || [],
+      source_name: exercise.sourceName || "",
       created_at: exercise.createdAt,
     }))
   );
