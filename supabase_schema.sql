@@ -56,11 +56,14 @@ create policy "public update subjects" on public.subjects for update using (true
 create policy "public read topics" on public.topics for select using (true);
 create policy "public write topics" on public.topics for insert with check (true);
 create policy "public update topics" on public.topics for update using (true);
+create policy "public delete topics for testing" on public.topics for delete using (true);
 
 create policy "public read exercises" on public.exercises for select using (true);
 create policy "public write exercises" on public.exercises for insert with check (true);
 create policy "public update exercises" on public.exercises for update using (true);
+create policy "public delete exercises for testing" on public.exercises for delete using (true);
 
 create policy "public read documents" on public.documents for select using (true);
 create policy "public write documents" on public.documents for insert with check (true);
 create policy "public update documents" on public.documents for update using (true);
+create policy "public delete documents for testing" on public.documents for delete using (true);

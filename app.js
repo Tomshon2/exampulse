@@ -137,6 +137,7 @@ const els = {
   exerciseSuggestions: document.querySelector("#exercise-suggestions"),
   historyList: document.querySelector("#history-list"),
   seedButton: document.querySelector("#seed-button"),
+  clearSubject: document.querySelector("#clear-subject"),
   metrics: {
     exercises: document.querySelector("#metric-exercises"),
     topics: document.querySelector("#metric-topics"),
@@ -1529,6 +1530,43 @@ function saveExerciseSolution(exerciseId) {
   els.analysisPreview.textContent = "Resolucao guardada.";
 }
 
+async function clearCurrentSubjectData() {
+  const subject = getSubject();
+  if (!subject) return;
+
+  const confirmed = confirm(`Limpar todos os exercicios, temas detetados e conselhos de "${subject.name}"?`);
+  if (!confirmed) return;
+
+  els.clearSubject.disabled = true;
+  els.clearSubject.textContent = "A limpar...";
+
+  try {
+    if (supabaseClient && cloudReady) {
+      const { error: exerciseError } = await supabaseClient.from("exercises").delete().eq("subject_id", subject.id);
+      if (exerciseError) throw exerciseError;
+
+      const { error: topicError } = await supabaseClient.from("topics").delete().eq("subject_id", subject.id);
+      if (topicError) throw topicError;
+
+      const { error: subjectError } = await supabaseClient.from("subjects").update({ advice: "" }).eq("id", subject.id);
+      if (subjectError) throw subjectError;
+    }
+
+    subject.exercises = [];
+    subject.customTopics = [];
+    subject.advice = "";
+    persist();
+    render();
+    activateTab("paste");
+    els.analysisPreview.textContent = "Dados de teste limpos. Podes importar ou colar novamente.";
+  } catch (error) {
+    els.analysisPreview.textContent = `Nao consegui limpar na Supabase: ${error.message}`;
+  } finally {
+    els.clearSubject.disabled = false;
+    els.clearSubject.textContent = "Limpar dados de teste";
+  }
+}
+
 function addSampleData() {
   const subject = getSubject();
   const years = ["2021/2022", "2022/2023", "2023/2024", "2024/2025"];
@@ -1634,6 +1672,8 @@ els.historyList.addEventListener("click", (event) => {
 });
 
 els.seedButton.addEventListener("click", addSampleData);
+
+els.clearSubject.addEventListener("click", clearCurrentSubjectData);
 
 render();
 initSupabaseSync();
