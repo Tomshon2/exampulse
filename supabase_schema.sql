@@ -33,6 +33,13 @@ create table if not exists public.exercises (
   keywords text[] not null default '{}',
   images jsonb not null default '[]'::jsonb,
   confidence text not null default 'Media',
+  ocr_confidence numeric,
+  boundary_confidence numeric,
+  topic_confidence numeric,
+  extraction_status text not null default '',
+  page_number integer,
+  source_file text not null default '',
+  bounds jsonb,
   analysis_notes text not null default '',
   question_number integer,
   answer_structure text not null default '',
@@ -44,6 +51,13 @@ create table if not exists public.exercises (
 
 alter table public.exercises add column if not exists images jsonb not null default '[]'::jsonb;
 alter table public.exercises add column if not exists confidence text not null default 'Media';
+alter table public.exercises add column if not exists ocr_confidence numeric;
+alter table public.exercises add column if not exists boundary_confidence numeric;
+alter table public.exercises add column if not exists topic_confidence numeric;
+alter table public.exercises add column if not exists extraction_status text not null default '';
+alter table public.exercises add column if not exists page_number integer;
+alter table public.exercises add column if not exists source_file text not null default '';
+alter table public.exercises add column if not exists bounds jsonb;
 alter table public.exercises add column if not exists analysis_notes text not null default '';
 alter table public.exercises add column if not exists question_number integer;
 alter table public.exercises add column if not exists answer_structure text not null default '';

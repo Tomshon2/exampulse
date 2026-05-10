@@ -111,6 +111,8 @@ const ACTION_VERBS = new Set([
   "defina", "explique", "justifique", "compare", "calcule", "determine", "resolva", "derive",
   "desenhe", "projete", "implemente", "analise", "interprete", "classifique", "identifique", "discuta",
 ]);
+const QUESTION_ACTION_PATTERN = "(?:calcule|determine|desenhe|projete|projecte|implemente|explique|indique|justifique|represente|construa|considere|dimensione|simplifique|obtenha|apresente|complete|preencha|analise|deduza|mostre|descreva|identifique|converta|codifique|liste|enumere|assinale|responda|avalie|classifique|derive|prove|trace|esboce|compare|discuta)";
+const QUESTION_ACTION_REGEX = new RegExp(`\\b${QUESTION_ACTION_PATTERN}\\b`, "i");
 
 const SAMPLE_EXERCISES = `1. Simplifique a funcao logica F(A,B,C,D) usando mapas de Karnaugh e implemente o circuito apenas com portas NAND.
 
@@ -229,6 +231,13 @@ function normalizeState(nextState) {
           solution: exercise.solution || "",
           images: Array.isArray(exercise.images) ? exercise.images : [],
           confidence: exercise.confidence || estimateSegmentationConfidence(exercise.text || "", exercise),
+          ocrConfidence: exercise.ocrConfidence ?? exercise.ocr_confidence ?? null,
+          boundaryConfidence: exercise.boundaryConfidence ?? exercise.boundary_confidence ?? null,
+          topicConfidence: exercise.topicConfidence ?? exercise.topic_confidence ?? null,
+          extractionStatus: exercise.extractionStatus || exercise.extraction_status || "",
+          pageNumber: exercise.pageNumber || exercise.page_number || null,
+          sourceFile: exercise.sourceFile || exercise.source_file || exercise.sourceName || "",
+          bounds: exercise.bounds || null,
           analysisNotes: exercise.analysisNotes || exercise.analysis_notes || "",
           questionNumber: exercise.questionNumber || exercise.question_number || null,
           answerStructure: exercise.answerStructure || exercise.answer_structure || "",
@@ -386,6 +395,7 @@ function prepareExerciseText(rawText) {
     .replace(/[\u00a0\f]+/g, " ")
     .replace(/[\u2013\u2014]/g, "-")
     .replace(/[ \t]+/g, " ")
+    .replace(new RegExp(`\\s+(\\d{1,2}\\s+(?=${QUESTION_ACTION_PATTERN}\\b))`, "gi"), "\n\n$1")
     .replace(/\s+(\d{1,2}(?:[.,]\d{1,2}){0,3}\s*[.)]\s+(?=[A-Za-z0-9]))/g, "\n\n$1")
     .replace(/\s+(\d{1,2}(?:[.,]\d{1,2}){0,3}\s*-\s+(?=[A-Za-z0-9]))/g, "\n\n$1")
     .replace(/(^|\s+)(\d{1,2}(?:[.,]\d{1,2}){0,3})\s*\?\s+(?=[A-Za-z0-9])/g, "$1\n\n$2- ")
@@ -429,7 +439,7 @@ function cleanQuestionCandidate(value) {
 
 function hasQuestionSignal(text) {
   const normalized = normalizeText(text);
-  return /(calcule|determine|desenhe|projete|implemente|explique|indique|justifique|represente|construa|considere|dimensione|simplifique|obtenha|apresente|complete|preencha|analise|deduza|mostre|descreva|identifique|converta|codifique|liste|enumere|assinale|responda|avalie|classifique|derive|prove|trace|esboce|compare|discuta)/.test(normalized) || /[A-Za-z]\?/.test(text);
+  return QUESTION_ACTION_REGEX.test(normalized) || /[A-Za-z]\?/.test(text);
 }
 
 function looksLikeDocumentHeaderMarker(text) {
@@ -884,6 +894,7 @@ function addExercisesFromForm(formData) {
     existingSignatures.add(signature);
     const confidence = piece.confidence || estimateSegmentationConfidence(text, piece);
     const analysis = classifyExercise(text, subject);
+    const topicConfidence = estimateTopicConfidence(analysis);
     registerTopicOccurrences(subject, analysis.topics, {
       year: parseYearStart(formData.academicYear),
       sourceType: formData.sourceType || "Manual",
@@ -900,9 +911,16 @@ function addExercisesFromForm(formData) {
       assessment: formData.assessment,
       sourceType: formData.sourceType || "Manual",
       sourceName,
+      sourceFile: piece.sourceFile || sourceName,
+      pageNumber: piece.pageNumber || null,
       solution: "",
       images: Array.isArray(piece.images) ? piece.images.slice(0, 4) : [],
       confidence,
+      ocrConfidence: piece.ocrConfidence ?? null,
+      boundaryConfidence: piece.boundaryConfidence ?? confidenceToScore(confidence),
+      topicConfidence,
+      extractionStatus: piece.extractionStatus || (confidence === "Baixa" ? "needs_review" : "ready"),
+      bounds: piece.bounds || null,
       analysisNotes: piece.analysisNotes || buildSegmentationNote(text, confidence),
       questionNumber: piece.questionNumber || newExercises.length + 1,
       answerStructure: buildAnswerStructureSuggestion(analysis, text),
@@ -916,6 +934,19 @@ function addExercisesFromForm(formData) {
   persist();
   newExercises.skippedDuplicates = skippedDuplicates;
   return newExercises;
+}
+
+function estimateTopicConfidence(analysis) {
+  const topics = analysis?.topics || [];
+  if (!topics.length || topics[0] === "Tema por confirmar") return 0.35;
+  const keywordCount = (analysis.keywords || []).length;
+  return Math.min(0.95, 0.52 + keywordCount * 0.05 + Math.max(0, topics.length - 1) * 0.06);
+}
+
+function confidenceToScore(confidence) {
+  if (confidence === "Alta") return 0.9;
+  if (confidence === "Media") return 0.68;
+  return 0.38;
 }
 
 function getManualSourceName(dateValue) {
@@ -1007,7 +1038,7 @@ async function importDocumentFiles() {
           ...metadata,
           academicYear,
           assessment: documentInfo.assessment || metadata.assessment,
-          sourceType: documentInfo.sourceType,
+          sourceType: payload.documentKind || documentInfo.sourceType,
           exerciseText: text,
           preparedQuestions: payload.questions || null,
           sourceName: file.name,
@@ -1150,6 +1181,13 @@ async function loadFromSupabase() {
           solution: exercise.solution || "",
           images: Array.isArray(exercise.images) ? exercise.images : [],
           confidence: exercise.confidence || "Media",
+          ocrConfidence: exercise.ocr_confidence ?? null,
+          boundaryConfidence: exercise.boundary_confidence ?? null,
+          topicConfidence: exercise.topic_confidence ?? null,
+          extractionStatus: exercise.extraction_status || "",
+          pageNumber: exercise.page_number || null,
+          sourceFile: exercise.source_file || exercise.source_name || "",
+          bounds: exercise.bounds || null,
           analysisNotes: exercise.analysis_notes || "",
           questionNumber: exercise.question_number || null,
           answerStructure: exercise.answer_structure || "",
@@ -1239,6 +1277,13 @@ async function buildExerciseRowsForSync(options = {}) {
           row.question_number = exercise.questionNumber || null;
           row.answer_structure = exercise.answerStructure || "";
           row.notes = exercise.notes || "";
+          row.ocr_confidence = exercise.ocrConfidence ?? null;
+          row.boundary_confidence = exercise.boundaryConfidence ?? null;
+          row.topic_confidence = exercise.topicConfidence ?? null;
+          row.extraction_status = exercise.extractionStatus || "";
+          row.page_number = exercise.pageNumber || null;
+          row.source_file = exercise.sourceFile || exercise.sourceName || "";
+          row.bounds = exercise.bounds || null;
         }
         if (includeImages) {
           row.images = await persistExerciseImages(subject.id, exercise);
@@ -1256,7 +1301,7 @@ function isMissingImagesColumnError(error) {
 
 function isMissingExtendedExerciseColumnError(error) {
   const text = String(error?.message || "").toLowerCase();
-  return ["confidence", "analysis_notes", "question_number", "answer_structure", "notes"].some((column) =>
+  return ["confidence", "analysis_notes", "question_number", "answer_structure", "notes", "ocr_confidence", "boundary_confidence", "topic_confidence", "extraction_status", "page_number", "source_file", "bounds"].some((column) =>
     text.includes(column) && text.includes("column")
   );
 }
@@ -1352,29 +1397,527 @@ async function extractTextFromFile(file) {
 }
 
 async function extractDocumentPayload(file) {
-  const name = file.name.toLowerCase();
+  return DocumentPipeline.extract(file);
+}
 
-  if (file.type.startsWith("text/") || name.endsWith(".txt") || name.endsWith(".md")) {
-    return { text: await file.text(), questions: [] };
+const FileDetectionModule = {
+  detect(file) {
+    const name = file.name.toLowerCase();
+    if (file.type.startsWith("text/") || name.endsWith(".txt") || name.endsWith(".md")) return "text";
+    if (file.type === "application/pdf" || name.endsWith(".pdf")) return "pdf";
+    if (file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || name.endsWith(".docx")) return "docx";
+    if (file.type.startsWith("image/") || /\.(png|jpe?g|webp)$/i.test(name)) return "image";
+    return "unsupported";
+  },
+};
+
+const DocumentPipeline = {
+  async extract(file) {
+    const fileType = FileDetectionModule.detect(file);
+    if (fileType === "text") return this.fromPlainText(await file.text(), file.name, "born-digital text");
+    if (fileType === "docx") {
+      if (!window.mammoth) throw new Error("leitor de Word nao carregou");
+      return this.fromPlainText(await extractDocxText(await file.arrayBuffer()), file.name, "born-digital Word");
+    }
+    if (fileType === "pdf") return this.fromPdf(await file.arrayBuffer(), file.name);
+    if (fileType === "image") return this.fromImage(file);
+    throw new Error("Formato nao suportado");
+  },
+
+  fromPlainText(text, sourceFile, sourceType) {
+    const questions = QuestionBoundaryModule.fromText(text, sourceFile, sourceType);
+    return { text, questions, documentKind: sourceType };
+  },
+
+  async fromPdf(arrayBuffer, sourceFile) {
+    if (!window.pdfjsLib) {
+      const text = await extractSimplePdfText(arrayBuffer);
+      return this.fromPlainText(text, sourceFile, "PDF");
+    }
+
+    const pdf = await window.pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+    const nativePages = await PdfNativeTextModule.extractPages(pdf);
+    const kind = PdfNativeTextModule.detectPdfKind(nativePages, pdf.numPages);
+
+    if (kind !== "scanned") {
+      const renderedPages = await PdfPreprocessingModule.renderPages(pdf, { scale: 2.05, enhance: true });
+      const nativeQuestions = QuestionBoundaryModule.fromLayoutPages(nativePages, {
+        sourceFile,
+        sourceType: kind === "mixed" ? "PDF misto" : "PDF selecionavel",
+        pageImages: renderedPages,
+        ocrConfidence: null,
+      });
+      if (nativeQuestions.length) {
+        return {
+          text: nativePages.map((page) => page.text).join("\n\n").trim(),
+          questions: nativeQuestions,
+          documentKind: kind,
+        };
+      }
+    }
+
+    const ocrPages = await OcrPreprocessingModule.ocrPdf(pdf);
+    const questions = QuestionBoundaryModule.fromLayoutPages(ocrPages, {
+      sourceFile,
+      sourceType: kind === "mixed" ? "PDF misto OCR" : "PDF digitalizado OCR",
+      pageImages: ocrPages,
+      ocrConfidence: average(ocrPages.map((page) => page.ocrConfidence).filter((value) => value !== null)),
+    });
+    return { text: ocrPages.map((page) => page.text).join("\n\n").trim(), questions, documentKind: kind };
+  },
+
+  async fromImage(file) {
+    if (!window.Tesseract) throw new Error("OCR de imagens nao carregou");
+    showImportMessage(`A melhorar imagem ${file.name} e analisar layout...`);
+    const page = await OcrPreprocessingModule.ocrImageFile(file);
+    const questions = QuestionBoundaryModule.fromLayoutPages([page], {
+      sourceFile: file.name,
+      sourceType: "Imagem OCR",
+      pageImages: [page],
+      ocrConfidence: page.ocrConfidence,
+    });
+    return { text: page.text, questions, documentKind: "image" };
+  },
+};
+
+const PdfNativeTextModule = {
+  async extractPages(pdf) {
+    const pages = [];
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: 1 });
+      const content = await page.getTextContent();
+      const lines = groupPdfTextItemsIntoLines(content.items || [], viewport, pageNumber);
+      pages.push({
+        pageNumber,
+        width: viewport.width,
+        height: viewport.height,
+        text: lines.map((line) => line.text).join("\n"),
+        lines,
+        images: [],
+        ocrConfidence: null,
+        source: "native",
+      });
+    }
+    return pages;
+  },
+
+  detectPdfKind(pages, pageCount) {
+    const pagesWithText = pages.filter((page) => normalizeText(page.text).length > 80).length;
+    if (!pagesWithText) return "scanned";
+    if (pagesWithText < pageCount) return "mixed";
+    return "born-digital";
+  },
+};
+
+const PdfPreprocessingModule = {
+  async renderPages(pdf, options = {}) {
+    const pages = [];
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      const canvas = await renderPdfPageToCanvas(await pdf.getPage(pageNumber), options.scale || 2.05);
+      if (options.enhance) enhanceCanvasForOcr(canvas);
+      pages.push({
+        pageNumber,
+        canvas,
+        imageUrl: canvas.toDataURL("image/png"),
+        width: canvas.width,
+        height: canvas.height,
+      });
+    }
+    return pages;
+  },
+};
+
+const OcrPreprocessingModule = {
+  async ocrPdf(pdf) {
+    if (!window.Tesseract) return [];
+    const rendered = await PdfPreprocessingModule.renderPages(pdf, { scale: 2.2, enhance: true });
+    const pages = [];
+    for (const renderedPage of rendered) {
+      showImportMessage(`OCR com layout na pagina ${renderedPage.pageNumber}/${pdf.numPages}...`);
+      const result = await window.Tesseract.recognize(renderedPage.imageUrl, "por+eng");
+      pages.push(buildLayoutPageFromOcr(result, renderedPage));
+    }
+    return pages;
+  },
+
+  async ocrImageFile(file) {
+    const canvas = await imageFileToEnhancedCanvas(file);
+    const imageUrl = canvas.toDataURL("image/png");
+    const result = await window.Tesseract.recognize(imageUrl, "por+eng");
+    return buildLayoutPageFromOcr(result, {
+      pageNumber: 1,
+      canvas,
+      imageUrl,
+      width: canvas.width,
+      height: canvas.height,
+    });
+  },
+};
+
+const QuestionBoundaryModule = {
+  fromText(text, sourceFile, sourceType) {
+    return splitExamQuestions(text).map((questionText, index) => ({
+      text: questionText,
+      images: [],
+      sourceFile,
+      sourceType,
+      pageNumber: null,
+      questionNumber: inferQuestionNumber(questionText) || index + 1,
+      confidence: estimateSegmentationConfidence(questionText),
+      boundaryConfidence: 0.62,
+      ocrConfidence: null,
+      extractionStatus: "ready",
+      bounds: null,
+    }));
+  },
+
+  fromLayoutPages(pages, options) {
+    const lines = pages
+      .flatMap((page) => (page.lines || []).map((line) => ({ ...line, pageNumber: page.pageNumber, pageHeight: page.height, pageWidth: page.width })))
+      .filter((line) => line.text && !isBoilerplateLine(line.text))
+      .sort(compareLayoutLines);
+
+    if (!lines.length) return [];
+
+    const firstAnchorIndex = lines.findIndex((line) => isLineQuestionStart(line.text));
+    const candidateLines = firstAnchorIndex > 0 ? lines.slice(firstAnchorIndex) : lines;
+    const blocks = hybridSegmentLines(candidateLines);
+
+    const questions = blocks
+      .map((block, index) => {
+        const text = cleanQuestionCandidate(block.lines.map((line) => line.text).join("\n"));
+        const confidence = confidenceFromBoundaryScore(block.boundaryScore, text);
+        const images = ImageAssociationModule.attachImages(block, pages, options.pageImages || []);
+        return {
+          text,
+          images,
+          sourceFile: options.sourceFile,
+          sourceType: options.sourceType,
+          pageNumber: block.startPage,
+          questionNumber: inferQuestionNumber(block.anchorText) || index + 1,
+          confidence,
+          boundaryConfidence: block.boundaryScore,
+          ocrConfidence: block.ocrConfidence ?? options.ocrConfidence ?? null,
+          extractionStatus: confidence === "Baixa" || (block.ocrConfidence !== null && block.ocrConfidence < 0.55) ? "needs_review" : "ready",
+          analysisNotes: buildPipelineReviewNote(confidence, block),
+          bounds: block.bounds,
+        };
+      })
+      .filter((question) => isLikelyExercise(question.text));
+
+    if (questions.length) return questions;
+
+    return this.fromText(pages.map((page) => page.text).join("\n\n"), options.sourceFile, options.sourceType);
+  },
+};
+
+const ImageAssociationModule = {
+  attachImages(block, layoutPages, renderedPages) {
+    const pageNumbers = new Set(block.lines.map((line) => line.pageNumber));
+    const images = [];
+    for (const pageNumber of pageNumbers) {
+      const page = layoutPages.find((item) => item.pageNumber === pageNumber);
+      const rendered = renderedPages.find((item) => item.pageNumber === pageNumber);
+      if (!page || !rendered?.imageUrl) continue;
+
+      const pageLines = block.lines.filter((line) => line.pageNumber === pageNumber);
+      const visualBands = findVisualBandsForQuestion(pageLines, block, page);
+      visualBands.slice(0, 2).forEach((band, index) => {
+        const crop = cropRenderedPage(rendered, page, band);
+        if (crop) {
+          images.push({
+            src: crop,
+            caption: `Figura da pergunta ${block.questionNumber || ""}`.trim(),
+            pageNumber,
+            bounds: band,
+            associationConfidence: band.confidence || 0.68,
+            association: "bbox-proximity",
+          });
+        }
+      });
+    }
+    return images.slice(0, 4);
+  },
+};
+
+function groupPdfTextItemsIntoLines(items, viewport, pageNumber) {
+  const raw = items
+    .map((item) => {
+      const transform = item.transform || [1, 0, 0, 1, 0, 0];
+      const x = transform[4] || 0;
+      const y = viewport.height - (transform[5] || 0);
+      const fontSize = Math.hypot(transform[0] || 0, transform[1] || 0) || item.height || 10;
+      const width = item.width || String(item.str || "").length * fontSize * 0.5;
+      return {
+        text: String(item.str || "").trim(),
+        x0: x,
+        x1: x + width,
+        y0: y - fontSize,
+        y1: y + 2,
+        fontSize,
+        pageNumber,
+        confidence: null,
+      };
+    })
+    .filter((item) => item.text);
+
+  raw.sort((a, b) => Math.abs(a.y0 - b.y0) > 4 ? a.y0 - b.y0 : a.x0 - b.x0);
+  const lines = [];
+  for (const item of raw) {
+    const current = lines[lines.length - 1];
+    if (current && Math.abs(current.y0 - item.y0) <= Math.max(4, current.fontSize * 0.42)) {
+      current.items.push(item);
+      current.text = current.items.sort((a, b) => a.x0 - b.x0).map((part) => part.text).join(" ");
+      current.x0 = Math.min(current.x0, item.x0);
+      current.x1 = Math.max(current.x1, item.x1);
+      current.y0 = Math.min(current.y0, item.y0);
+      current.y1 = Math.max(current.y1, item.y1);
+      current.fontSize = Math.max(current.fontSize, item.fontSize);
+    } else {
+      lines.push({ ...item, items: [item] });
+    }
+  }
+  return lines.map(({ items, ...line }) => line);
+}
+
+async function renderPdfPageToCanvas(page, scale) {
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  canvas.width = Math.floor(viewport.width);
+  canvas.height = Math.floor(viewport.height);
+  await page.render({ canvasContext: context, viewport }).promise;
+  return canvas;
+}
+
+function enhanceCanvasForOcr(canvas) {
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  for (let index = 0; index < data.length; index += 4) {
+    const gray = data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114;
+    const contrasted = Math.max(0, Math.min(255, (gray - 128) * 1.34 + 128));
+    const value = contrasted > 238 ? 255 : contrasted < 42 ? 0 : contrasted;
+    data[index] = value;
+    data[index + 1] = value;
+    data[index + 2] = value;
+  }
+  context.putImageData(imageData, 0, 0);
+}
+
+async function imageFileToEnhancedCanvas(file) {
+  const image = await loadImage(await fileToDataUrl(file));
+  const maxWidth = 1800;
+  const scale = image.naturalWidth > maxWidth ? maxWidth / image.naturalWidth : 1;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(image.naturalWidth * scale);
+  canvas.height = Math.round(image.naturalHeight * scale);
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  enhanceCanvasForOcr(canvas);
+  return canvas;
+}
+
+function buildLayoutPageFromOcr(result, renderedPage) {
+  const rawLines = (result.data?.lines || [])
+    .map((line) => ({
+      text: String(line.text || "").trim(),
+      x0: line.bbox?.x0 ?? 0,
+      x1: line.bbox?.x1 ?? renderedPage.width,
+      y0: line.bbox?.y0 ?? 0,
+      y1: line.bbox?.y1 ?? 0,
+      fontSize: Math.max(8, (line.bbox?.y1 ?? 0) - (line.bbox?.y0 ?? 0)),
+      confidence: typeof line.confidence === "number" ? line.confidence / 100 : null,
+      pageNumber: renderedPage.pageNumber,
+    }))
+    .filter((line) => line.text.length >= 2)
+    .sort(compareLayoutLines);
+  return {
+    pageNumber: renderedPage.pageNumber,
+    width: renderedPage.width,
+    height: renderedPage.height,
+    canvas: renderedPage.canvas || null,
+    imageUrl: renderedPage.imageUrl,
+    lines: rawLines,
+    text: rawLines.map((line) => line.text).join("\n"),
+    ocrConfidence: average(rawLines.map((line) => line.confidence).filter((value) => value !== null)),
+    source: "ocr",
+  };
+}
+
+function compareLayoutLines(a, b) {
+  return a.pageNumber === b.pageNumber
+    ? Math.abs(a.y0 - b.y0) > 6 ? a.y0 - b.y0 : a.x0 - b.x0
+    : a.pageNumber - b.pageNumber;
+}
+
+function hybridSegmentLines(lines) {
+  const gaps = [];
+  for (let index = 1; index < lines.length; index += 1) {
+    if (lines[index].pageNumber === lines[index - 1].pageNumber) gaps.push(Math.max(0, lines[index].y0 - lines[index - 1].y1));
+  }
+  const sortedGaps = [...gaps].sort((a, b) => a - b);
+  const medianGap = sortedGaps[Math.floor(sortedGaps.length / 2)] || 10;
+  const largeGap = Math.max(36, medianGap * 3.1);
+
+  const blocks = [];
+  let current = [lines[0]];
+
+  for (let index = 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    const prev = lines[index - 1];
+    const gap = line.pageNumber === prev.pageNumber ? Math.max(0, line.y0 - prev.y1) : 999;
+    const startsQuestion = isLineQuestionStart(line.text);
+    const headingChange = startsQuestion && line.fontSize > Math.max(10, (prev.fontSize || 10) * 1.08);
+    const indentReset = startsQuestion && line.x0 <= Math.max(80, current[0].x0 + 18);
+    const separatorBreak = looksLikeSeparatorLine(prev.text) || gap >= largeGap;
+    const currentText = current.map((item) => item.text).join(" ");
+    const shouldSplit = startsQuestion && (indentReset || headingChange || separatorBreak || currentText.length > 80);
+
+    if (shouldSplit) {
+      blocks.push(current);
+      current = [line];
+    } else {
+      current.push(line);
+    }
+  }
+  if (current.length) blocks.push(current);
+
+  return blocks.map((block, index) => buildQuestionBlock(block, blocks[index + 1], largeGap));
+}
+
+function buildQuestionBlock(lines, nextBlock, largeGap) {
+  const text = lines.map((line) => line.text).join(" ");
+  const markers = lines.filter((line) => isLineQuestionStart(line.text)).length;
+  const startPage = lines[0].pageNumber;
+  const endPage = lines[lines.length - 1].pageNumber;
+  const bounds = getBlockBounds(lines, nextBlock);
+  const hasAnchor = isLineQuestionStart(lines[0].text);
+  const ocrValues = lines.map((line) => line.confidence).filter((value) => value !== null);
+  let score = hasAnchor ? 0.78 : 0.48;
+  if (markers > 1) score -= 0.25;
+  if (text.length > 1400 || text.length < 45) score -= 0.14;
+  if (nextBlock && nextBlock[0].pageNumber === endPage) {
+    const gap = Math.max(0, nextBlock[0].y0 - lines[lines.length - 1].y1);
+    if (gap >= largeGap) score += 0.07;
+  }
+  return {
+    lines,
+    startPage,
+    endPage,
+    anchorText: lines[0].text,
+    questionNumber: inferQuestionNumber(lines[0].text),
+    bounds,
+    boundaryScore: Math.max(0.2, Math.min(0.96, score)),
+    ocrConfidence: ocrValues.length ? average(ocrValues) : null,
+  };
+}
+
+function getBlockBounds(lines, nextBlock) {
+  const samePageLines = lines.filter((line) => line.pageNumber === lines[0].pageNumber);
+  const pageNumber = lines[0].pageNumber;
+  const lastLine = samePageLines[samePageLines.length - 1];
+  const nextStartY = nextBlock?.[0]?.pageNumber === pageNumber ? nextBlock[0].y0 : null;
+  return {
+    pageNumber,
+    x0: Math.max(0, Math.min(...samePageLines.map((line) => line.x0)) - 8),
+    x1: Math.max(...samePageLines.map((line) => line.x1)) + 8,
+    y0: Math.max(0, Math.min(...samePageLines.map((line) => line.y0)) - 10),
+    y1: nextStartY ? Math.max(lastLine.y1 + 12, nextStartY - 12) : lastLine.y1 + 18,
+  };
+}
+
+function findVisualBandsForQuestion(lines, block, page) {
+  if (!lines.length) return [];
+  const normalized = normalizeText(block.lines.map((line) => line.text).join(" "));
+  const explicitFigureReference = /(figura|imagem|diagrama|grafico|esquema|circuito|tabela|mapa)\s+(seguinte|abaixo|acima|anexo|representad[ao]|\d+)/.test(normalized) ||
+    /(na|no|pela|pelo|da|do)\s+(figura|imagem|diagrama|tabela|grafico|esquema)/.test(normalized);
+  const bands = [];
+  const sorted = [...lines].sort(compareLayoutLines);
+  for (let index = 1; index < sorted.length; index += 1) {
+    const gap = Math.max(0, sorted[index].y0 - sorted[index - 1].y1);
+    if (gap >= (explicitFigureReference ? 38 : 72)) {
+      bands.push({
+        pageNumber: sorted[index].pageNumber,
+        x0: 0,
+        x1: page.width,
+        y0: sorted[index - 1].y1 + 4,
+        y1: sorted[index].y0 - 4,
+        confidence: explicitFigureReference ? 0.76 : 0.6,
+      });
+    }
   }
 
-  if (file.type === "application/pdf" || name.endsWith(".pdf")) {
-    return extractPdfPayload(await file.arrayBuffer());
+  const bottomGap = Math.max(0, (block.bounds?.y1 || sorted[sorted.length - 1].y1) - sorted[sorted.length - 1].y1);
+  if (bottomGap >= (explicitFigureReference ? 34 : 70)) {
+    bands.push({
+      pageNumber: sorted[0].pageNumber,
+      x0: 0,
+      x1: page.width,
+      y0: sorted[sorted.length - 1].y1 + 4,
+      y1: (block.bounds?.y1 || sorted[sorted.length - 1].y1) - 4,
+      confidence: explicitFigureReference ? 0.74 : 0.58,
+    });
   }
+  return bands.filter((band) => band.y1 - band.y0 >= 34);
+}
 
-  if (
-    file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-    name.endsWith(".docx")
-  ) {
-    if (!window.mammoth) throw new Error("leitor de Word nao carregou");
-    return { text: await extractDocxText(await file.arrayBuffer()), questions: [] };
+function cropRenderedPage(renderedPage, layoutPage, band) {
+  try {
+    const ratioX = renderedPage.width / Math.max(1, layoutPage.width);
+    const ratioY = renderedPage.height / Math.max(1, layoutPage.height);
+    const canvas = document.createElement("canvas");
+    const x = Math.max(0, Math.floor((band.x0 || 0) * ratioX));
+    const y = Math.max(0, Math.floor(band.y0 * ratioY));
+    const width = Math.min(renderedPage.width - x, Math.floor(((band.x1 || layoutPage.width) - (band.x0 || 0)) * ratioX));
+    const height = Math.min(renderedPage.height - y, Math.floor((band.y1 - band.y0) * ratioY));
+    if (width < 80 || height < 40) return "";
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (renderedPage.canvas) {
+      context.drawImage(renderedPage.canvas, x, y, width, height, 0, 0, width, height);
+    } else {
+      return "";
+    }
+    return canvas.toDataURL("image/png");
+  } catch {
+    return "";
   }
+}
 
-  if (file.type.startsWith("image/") || /\.(png|jpe?g|webp)$/i.test(name)) {
-    return extractImagePayload(file);
-  }
+function confidenceFromBoundaryScore(score, text) {
+  if (score < 0.52 || text.length < 35 || text.length > 1500) return "Baixa";
+  if (score < 0.74) return "Media";
+  return "Alta";
+}
 
-  throw new Error("Formato nao suportado");
+function buildPipelineReviewNote(confidence, block) {
+  const notes = [];
+  if (confidence === "Baixa") notes.push("Rever corte da pergunta");
+  if ((block.ocrConfidence ?? 1) < 0.55) notes.push("OCR com baixa confianca");
+  if ((block.lines || []).filter((line) => isLineQuestionStart(line.text)).length > 1) notes.push("Possivel juncao de perguntas");
+  return notes.join("; ") || "";
+}
+
+function inferQuestionNumber(text) {
+  const match = String(text || "").trim().match(/^(?:quest(?:ao|ão)|exerc(?:icio|ício)|pergunta)?\s*(\d{1,2})(?:[.,]\d+)?/i);
+  return match ? Number(match[1]) : null;
+}
+
+function isBoilerplateLine(text) {
+  const normalized = normalizeText(text);
+  if (normalized.length < 2) return true;
+  return /^(pagina|page)\s*\d+/.test(normalized) || /^(nome|numero|n\.|classificacao|assinatura)\b/.test(normalized);
+}
+
+function looksLikeSeparatorLine(text) {
+  return /^[-_=*]{4,}$/.test(String(text || "").trim());
+}
+
+function average(values) {
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
 }
 
 async function extractPdfPayload(arrayBuffer) {
@@ -1507,7 +2050,7 @@ async function extractPdfQuestionsWithOcr(pdf) {
 }
 
 async function buildQuestionsFromOcrResult(result, imageUrl) {
-  const lines = (result.data?.lines || [])
+  let lines = (result.data?.lines || [])
     .map((line) => ({
       text: String(line.text || "").trim(),
       y0: line.bbox?.y0 ?? 0,
@@ -1517,13 +2060,17 @@ async function buildQuestionsFromOcrResult(result, imageUrl) {
     .sort((a, b) => a.y0 - b.y0);
 
   if (!lines.length) return [];
+  const firstQuestionLine = lines.findIndex((line) => isLineQuestionStart(line.text));
+  if (firstQuestionLine > 0) {
+    lines = lines.slice(firstQuestionLine);
+  }
   const imageHeight = result.data?.imageSize?.height || null;
   const blocks = splitOcrLinesIntoQuestionBlocks(lines);
   const questions = [];
   for (let index = 0; index < blocks.length; index += 1) {
     const block = blocks[index];
-    const image = await createQuestionImage(imageUrl, block.startY, block.endY, imageHeight);
     const text = cleanQuestionCandidate(block.lines.map((line) => line.text).join("\n"));
+    const image = await createQuestionImage(imageUrl, block, imageHeight, text);
     const confidence = block.confidence || estimateSegmentationConfidence(text, { images: image ? [image] : [] });
     questions.push({
       text,
@@ -1563,14 +2110,16 @@ function splitOcrLinesIntoQuestionBlocks(lines) {
   }
   if (current.length) blocks.push(current);
 
-  return blocks.map((group) => {
+  return blocks.map((group, index) => {
     const text = group.map((line) => line.text).join(" ");
     const markers = group.filter((line) => isLineQuestionStart(line.text)).length;
     const confidence = markers > 1 || text.length > 1300 ? "Baixa" : text.length > 850 ? "Media" : "Alta";
+    const naturalEndY = Math.max(...group.map((line) => line.y1)) + 14;
+    const nextStartY = blocks[index + 1]?.[0]?.y0;
     return {
       lines: group,
       startY: Math.max(0, Math.min(...group.map((line) => line.y0)) - 10),
-      endY: Math.max(...group.map((line) => line.y1)) + 14,
+      endY: nextStartY ? Math.max(naturalEndY, nextStartY - 12) : naturalEndY,
       confidence,
     };
   });
@@ -1580,16 +2129,20 @@ function isLineQuestionStart(text) {
   const line = normalizeText(String(text).trim());
   return /^(quest(?:ao|ão)|exerc(?:icio|ício)|pergunta)\s*\d+/.test(line) ||
     /^\d{1,2}(?:[.,]\d+){0,2}\s*[:.)-]/.test(line) ||
-    /^\d{1,2}\s+[a-z]\s*[:.)-]/.test(line);
+    /^\d{1,2}\s+[a-z]\s*[:.)-]/.test(line) ||
+    new RegExp(`^\\d{1,2}\\s+${QUESTION_ACTION_PATTERN}\\b`, "i").test(line);
 }
 
-async function createQuestionImage(imageUrl, startY, endY, sourceImageHeight) {
+async function createQuestionImage(imageUrl, block, sourceImageHeight, questionText = "") {
   try {
+    const visualBand = getLikelyVisualBand(block, questionText);
+    if (!visualBand) return null;
+
     const image = await loadImage(imageUrl);
     if (!sourceImageHeight) return { src: imageUrl, caption: "Figura da pergunta" };
     const ratio = image.naturalHeight / Math.max(1, sourceImageHeight);
-    const y0 = Math.max(0, Math.floor(startY * ratio));
-    const y1 = Math.min(image.naturalHeight, Math.max(y0 + 40, Math.floor(endY * ratio)));
+    const y0 = Math.max(0, Math.floor(visualBand.startY * ratio));
+    const y1 = Math.min(image.naturalHeight, Math.max(y0 + 40, Math.floor(visualBand.endY * ratio)));
     const height = Math.max(40, y1 - y0);
     const canvas = document.createElement("canvas");
     const context = canvas.getContext("2d");
@@ -1598,8 +2151,51 @@ async function createQuestionImage(imageUrl, startY, endY, sourceImageHeight) {
     context.drawImage(image, 0, y0, image.naturalWidth, height, 0, 0, image.naturalWidth, height);
     return { src: canvas.toDataURL("image/png"), caption: "Figura da pergunta" };
   } catch {
-    return { src: imageUrl, caption: "Figura da pergunta" };
+    return null;
   }
+}
+
+function getLikelyVisualBand(block, questionText) {
+  const lines = block.lines || [];
+  if (lines.length < 2) return null;
+
+  const normalized = normalizeText(questionText);
+  const explicitFigureReference = /(figura|imagem|diagrama|grafico|gráfico|esquema|circuito|tabela|mapa)\s+(seguinte|abaixo|acima|anexo|representad[ao]|\d+)/.test(normalized) ||
+    /(na|no|pela|pelo|da|do)\s+(figura|imagem|diagrama|tabela|grafico|gráfico|esquema)/.test(normalized);
+
+  const gaps = [];
+  for (let index = 1; index < lines.length; index += 1) {
+    const gap = Math.max(0, lines[index].y0 - lines[index - 1].y1);
+    if (gap >= 42) {
+      gaps.push({
+        startY: lines[index - 1].y1 + 4,
+        endY: lines[index].y0 - 4,
+        height: gap,
+      });
+    }
+  }
+
+  const lastLineEndY = Math.max(...lines.map((line) => line.y1));
+  const bottomGap = Math.max(0, (block.endY || lastLineEndY) - lastLineEndY);
+  if (bottomGap >= 58) {
+    gaps.push({
+      startY: lastLineEndY + 4,
+      endY: (block.endY || lastLineEndY) - 4,
+      height: bottomGap,
+    });
+  }
+
+  const largestGap = gaps.sort((a, b) => b.height - a.height)[0];
+  if (largestGap && (largestGap.height >= 70 || explicitFigureReference)) {
+    return largestGap;
+  }
+
+  if (!explicitFigureReference) return null;
+
+  return {
+    startY: Math.max(0, Math.min(...lines.map((line) => line.y0)) - 8),
+    endY: Math.max(...lines.map((line) => line.y1)) + 10,
+  };
 }
 
 async function fileToDataUrl(file) {
@@ -2315,19 +2911,28 @@ function renderExercisesByDocument(subject, documentKey = "") {
     `;
 
     const list = group.querySelector(".topic-exercises");
-    exercises.forEach((exercise, index) => {
+    [...exercises].sort((a, b) => (a.questionNumber || 999) - (b.questionNumber || 999)).forEach((exercise, index) => {
       const primaryTopic = exercise.topics?.[0] || "Tema por confirmar";
+      const needsReview = exercise.extractionStatus === "needs_review" || exercise.confidence === "Baixa";
       const card = document.createElement("article");
       card.className = "history-card";
       card.innerHTML = `
         <header>
           <div>
             <strong>Pergunta ${index + 1}</strong>
-            <div class="mini-label">${escapeHtml(primaryTopic)} · ${escapeHtml(exercise.type || "Pergunta")}</div>
+            <div class="mini-label">${escapeHtml(primaryTopic)} · ${escapeHtml(exercise.type || "Pergunta")}${exercise.pageNumber ? ` · Pag. ${escapeHtml(exercise.pageNumber)}` : ""}</div>
             <div class="mini-label">${escapeHtml(exercise.academicYear)} · ${escapeHtml(exercise.semester)}. semestre · ${escapeHtml(exercise.month)} · ${escapeHtml(exercise.assessment)}</div>
           </div>
         </header>
-        <p>${escapeHtml(cleanExerciseText(exercise.text))}</p>
+        ${needsReview ? `<div class="review-panel">
+          <strong>Revisao necessaria</strong>
+          <textarea data-question-text="${exercise.id}" rows="5">${escapeHtml(cleanExerciseText(exercise.text))}</textarea>
+          <div class="solution-actions">
+            <button class="secondary-button" type="button" data-save-question="${exercise.id}">Guardar texto corrigido</button>
+            <button class="secondary-button" type="button" data-split-question="${exercise.id}">Dividir no cursor</button>
+            <button class="secondary-button" type="button" data-merge-next="${exercise.id}">Juntar com proxima</button>
+          </div>
+        </div>` : `<p>${escapeHtml(cleanExerciseText(exercise.text))}</p>`}
         ${renderExerciseImages(exercise)}
         <label class="solution-editor">
           Resolucao do aluno
@@ -2343,6 +2948,9 @@ function renderExercisesByDocument(subject, documentKey = "") {
         <div class="prediction-meta">
           <span class="pill">${escapeHtml(exercise.difficulty)}</span>
           <span class="pill">Confianca: ${escapeHtml(exercise.confidence || "Media")}</span>
+          ${exercise.ocrConfidence !== null && exercise.ocrConfidence !== undefined ? `<span class="pill">OCR: ${Math.round(Number(exercise.ocrConfidence) * 100)}%</span>` : ""}
+          ${exercise.boundaryConfidence !== null && exercise.boundaryConfidence !== undefined ? `<span class="pill">Corte: ${Math.round(Number(exercise.boundaryConfidence) * 100)}%</span>` : ""}
+          ${exercise.topicConfidence !== null && exercise.topicConfidence !== undefined ? `<span class="pill">Tema: ${Math.round(Number(exercise.topicConfidence) * 100)}%</span>` : ""}
           ${exercise.confidence === "Baixa" ? `<span class="pill warning-pill">${escapeHtml(exercise.analysisNotes || "Rever separacao")}</span>` : ""}
           <span class="pill">${escapeHtml(primaryTopic)}</span>
           <span class="pill">${escapeHtml((exercise.keywords || []).slice(0, 3).join(", ") || primaryTopic)}</span>
@@ -2362,7 +2970,14 @@ function renderExerciseImages(exercise) {
   const rendered = images.slice(0, 4).map((image, index) => {
     const src = image?.src || "";
     if (!src) return "";
-    return `<figure class="exercise-figure"><img src="${escapeHtml(src)}" alt="Figura da pergunta ${index + 1}" loading="lazy"><figcaption>${escapeHtml(image.caption || "Figura")}</figcaption></figure>`;
+    return `<figure class="exercise-figure">
+      <img src="${escapeHtml(src)}" alt="Figura da pergunta ${index + 1}" loading="lazy">
+      <figcaption>${escapeHtml(image.caption || "Figura")}</figcaption>
+      <div class="image-actions">
+        <button class="secondary-button" type="button" data-move-image-prev="${exercise.id}" data-image-index="${index}">Imagem anterior</button>
+        <button class="secondary-button" type="button" data-move-image-next="${exercise.id}" data-image-index="${index}">Imagem seguinte</button>
+      </div>
+    </figure>`;
   }).join("");
 
   return rendered ? `<div class="exercise-figures">${rendered}</div>` : "";
@@ -2548,6 +3163,137 @@ function saveExerciseSolution(exerciseId) {
   els.analysisPreview.textContent = "Resolucao guardada.";
 }
 
+function saveQuestionCorrection(exerciseId) {
+  const subject = getSubject();
+  const exercise = subject.exercises.find((item) => item.id === exerciseId);
+  const textarea = els.historyList.querySelector(`[data-question-text="${CSS.escape(exerciseId)}"]`);
+  if (!exercise || !textarea) return;
+
+  exercise.text = textarea.value.trim();
+  exercise.signature = getExerciseSignature(exercise.text);
+  exercise.confidence = "Media";
+  exercise.boundaryConfidence = Math.max(Number(exercise.boundaryConfidence || 0), 0.7);
+  exercise.extractionStatus = "corrected";
+  exercise.analysisNotes = "";
+  applyTopicClassification(exercise, subject);
+  persist();
+  render();
+  els.analysisPreview.textContent = "Texto da pergunta corrigido e tema recalculado.";
+}
+
+function splitQuestionAtCursor(exerciseId) {
+  const subject = getSubject();
+  const exercise = subject.exercises.find((item) => item.id === exerciseId);
+  const textarea = els.historyList.querySelector(`[data-question-text="${CSS.escape(exerciseId)}"]`);
+  if (!exercise || !textarea) return;
+
+  const splitAt = textarea.selectionStart || Math.floor(textarea.value.length / 2);
+  const first = textarea.value.slice(0, splitAt).trim();
+  const second = textarea.value.slice(splitAt).trim();
+  if (first.length < 25 || second.length < 25) {
+    els.analysisPreview.textContent = "Escolhe um ponto de divisao que deixe texto suficiente nas duas perguntas.";
+    return;
+  }
+
+  exercise.text = first;
+  exercise.signature = getExerciseSignature(first);
+  exercise.confidence = "Media";
+  exercise.boundaryConfidence = 0.72;
+  exercise.extractionStatus = "corrected";
+  exercise.analysisNotes = "";
+  applyTopicClassification(exercise, subject);
+
+  const newExercise = {
+    ...exercise,
+    id: crypto.randomUUID(),
+    text: second,
+    signature: getExerciseSignature(second),
+    images: [],
+    solution: "",
+    questionNumber: (exercise.questionNumber || 0) + 0.1,
+    confidence: "Media",
+    boundaryConfidence: 0.72,
+    extractionStatus: "corrected",
+    createdAt: new Date().toISOString(),
+  };
+  applyTopicClassification(newExercise, subject);
+
+  const index = subject.exercises.findIndex((item) => item.id === exerciseId);
+  subject.exercises.splice(index + 1, 0, newExercise);
+  renumberDocumentQuestions(subject, exercise);
+  persist();
+  render();
+  els.analysisPreview.textContent = "Pergunta dividida. Confirma se as imagens ficaram na pergunta certa.";
+}
+
+function mergeQuestionWithNext(exerciseId) {
+  const subject = getSubject();
+  const exercise = subject.exercises.find((item) => item.id === exerciseId);
+  const next = getAdjacentDocumentExercise(subject, exercise, 1);
+  if (!exercise || !next) {
+    els.analysisPreview.textContent = "Nao encontrei uma pergunta seguinte no mesmo documento.";
+    return;
+  }
+
+  exercise.text = `${cleanExerciseText(exercise.text)}\n\n${cleanExerciseText(next.text)}`.trim();
+  exercise.images = [...(exercise.images || []), ...(next.images || [])].slice(0, 4);
+  exercise.signature = getExerciseSignature(exercise.text);
+  exercise.confidence = "Media";
+  exercise.boundaryConfidence = 0.74;
+  exercise.extractionStatus = "corrected";
+  exercise.analysisNotes = "";
+  applyTopicClassification(exercise, subject);
+  subject.exercises = subject.exercises.filter((item) => item.id !== next.id);
+  renumberDocumentQuestions(subject, exercise);
+  persist();
+  render();
+  els.analysisPreview.textContent = "Perguntas juntas e tema recalculado.";
+}
+
+function moveExerciseImage(exerciseId, imageIndex, direction) {
+  const subject = getSubject();
+  const exercise = subject.exercises.find((item) => item.id === exerciseId);
+  const target = getAdjacentDocumentExercise(subject, exercise, direction);
+  const images = exercise?.images || [];
+  if (!exercise || !target || !images[imageIndex]) {
+    els.analysisPreview.textContent = "Nao encontrei uma pergunta vizinha para mover essa imagem.";
+    return;
+  }
+
+  const [image] = images.splice(imageIndex, 1);
+  target.images = [...(target.images || []), image].slice(0, 4);
+  target.extractionStatus = "corrected";
+  persist();
+  render();
+  els.analysisPreview.textContent = "Imagem reatribuida para a pergunta vizinha.";
+}
+
+function getAdjacentDocumentExercise(subject, exercise, direction) {
+  if (!exercise) return null;
+  const documentExercises = subject.exercises
+    .filter((item) => getDocumentKey(item) === getDocumentKey(exercise))
+    .sort((a, b) => (a.questionNumber || 999) - (b.questionNumber || 999));
+  const index = documentExercises.findIndex((item) => item.id === exercise.id);
+  return documentExercises[index + direction] || null;
+}
+
+function renumberDocumentQuestions(subject, referenceExercise) {
+  subject.exercises
+    .filter((item) => getDocumentKey(item) === getDocumentKey(referenceExercise))
+    .sort((a, b) => (a.questionNumber || 999) - (b.questionNumber || 999))
+    .forEach((item, index) => {
+      item.questionNumber = index + 1;
+    });
+}
+
+function applyTopicClassification(exercise, subject) {
+  const analysis = classifyExercise(exercise.text, subject);
+  Object.assign(exercise, analysis, {
+    topicConfidence: estimateTopicConfidence(analysis),
+    answerStructure: buildAnswerStructureSuggestion(analysis, exercise.text),
+  });
+}
+
 async function clearCurrentSubjectData() {
   const subject = getSubject();
   if (!subject) return;
@@ -2714,6 +3460,27 @@ els.historyList.addEventListener("click", (event) => {
   const solutionId = event.target.dataset.saveSolution;
   if (solutionId) {
     saveExerciseSolution(solutionId);
+  }
+
+  const questionId = event.target.dataset.saveQuestion;
+  if (questionId) {
+    saveQuestionCorrection(questionId);
+  }
+
+  const splitId = event.target.dataset.splitQuestion;
+  if (splitId) {
+    splitQuestionAtCursor(splitId);
+  }
+
+  const mergeId = event.target.dataset.mergeNext;
+  if (mergeId) {
+    mergeQuestionWithNext(mergeId);
+  }
+
+  const movePrevId = event.target.dataset.moveImagePrev;
+  const moveNextId = event.target.dataset.moveImageNext;
+  if (movePrevId || moveNextId) {
+    moveExerciseImage(movePrevId || moveNextId, Number(event.target.dataset.imageIndex || 0), movePrevId ? -1 : 1);
   }
 });
 

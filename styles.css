@@ -835,6 +835,34 @@ textarea {
   font-weight: 850;
 }
 
+.review-panel {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid rgba(184, 119, 0, 0.32);
+  border-radius: 8px;
+  background: #fff8eb;
+}
+
+.review-panel textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.image-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 10px 10px;
+}
+
+.image-actions .secondary-button {
+  min-height: 34px;
+  padding: 7px 10px;
+  font-size: 0.78rem;
+}
+
 .mini-label {
   color: var(--muted);
   font-size: 0.78rem;
