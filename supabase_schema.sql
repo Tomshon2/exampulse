@@ -3,6 +3,7 @@ create extension if not exists pgcrypto;
 create table if not exists public.subjects (
   id uuid primary key default gen_random_uuid(),
   name text not null,
+  advice text,
   created_at timestamptz not null default now()
 );
 
@@ -28,6 +29,7 @@ create table if not exists public.exercises (
   assessment text,
   difficulty text,
   exercise_type text,
+  solution text,
   keywords text[] not null default '{}',
   source_name text,
   created_at timestamptz not null default now()

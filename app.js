@@ -123,6 +123,9 @@ const els = {
   subjectManagerList: document.querySelector("#subject-manager-list"),
   subjectManagerNote: document.querySelector("#subject-manager-note"),
   subjectTitle: document.querySelector("#subject-title"),
+  subjectAdvice: document.querySelector("#subject-advice"),
+  generateAdvice: document.querySelector("#generate-advice"),
+  saveAdvice: document.querySelector("#save-advice"),
   documentFiles: document.querySelector("#document-file"),
   documentFileStatus: document.querySelector("#document-file-status"),
   documentImportButton: document.querySelector("#document-import-button"),
@@ -162,13 +165,16 @@ function loadState() {
     }
   }
 
+  const defaultSubjectId = crypto.randomUUID();
+
   return {
     analyzerVersion: ANALYZER_VERSION,
-    selectedSubjectId: "sub-sistemas-digitais",
+    selectedSubjectId: defaultSubjectId,
     subjects: [
       {
-        id: "sub-sistemas-digitais",
+        id: defaultSubjectId,
         name: "Sistemas Digitais",
+        advice: "",
         customTopics: [],
         exercises: [],
       },
@@ -191,12 +197,14 @@ function normalizeState(nextState) {
   nextState.subjects = nextState.subjects.map((subject) => dedupeSubjectExercises({
     ...subject,
     id: isUuid(subject.id) ? subject.id : crypto.randomUUID(),
+    advice: subject.advice || "",
     customTopics: Array.isArray(subject.customTopics) ? subject.customTopics : [],
     exercises: Array.isArray(subject.exercises)
       ? subject.exercises.map((exercise) => ({
           ...exercise,
           id: isUuid(exercise.id) ? exercise.id : crypto.randomUUID(),
           signature: exercise.signature || getExerciseSignature(exercise.text || ""),
+          solution: exercise.solution || "",
         }))
       : [],
   }));
@@ -261,6 +269,89 @@ function normalizeText(value) {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
+}
+
+function splitExamQuestions(rawText) {
+  const preparedText = prepareExerciseText(rawText);
+  const markers = findQuestionMarkers(preparedText);
+
+  if (markers.length) {
+    return markers
+      .map((marker, index) => preparedText.slice(marker.index, markers[index + 1]?.index || preparedText.length))
+      .map(cleanQuestionCandidate)
+      .filter(isLikelyExercise);
+  }
+
+  return preparedText
+    .split(/\n\s*\n/)
+    .map(cleanQuestionCandidate)
+    .filter(isLikelyExercise);
+}
+
+function prepareExerciseText(rawText) {
+  return rawText
+    .replace(/\r/g, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\s+((?:quest(?:ao|ão)|exerc(?:icio|ício))\s*\d+(?:[.,]\d+)*(?:\s*[a-z])?\s*[:.)-])/gi, "\n\n$1 ")
+    .replace(/\s+(\d+(?:[.,]\d+){1,3}\s*[:.)-]\s+)/g, "\n\n$1")
+    .replace(/\s+(\d+\s*[a-z]\s*[:.)-]\s+)/gi, "\n\n$1")
+    .replace(/\s+([a-z]\s*[\).]\s+(?=(?:calcule|determine|desenhe|projete|implemente|explique|indique|justifique|represente|construa|considere)\b))/gi, "\n\n$1")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function findQuestionMarkers(text) {
+  const markerPattern = /(?:^|\n)\s*((?:quest(?:ao|ão)|exerc(?:icio|ício))\s*\d+(?:[.,]\d+)*(?:\s*[a-z])?|(?:\d+(?:[.,]\d+){0,3})(?:\s*[a-z])?|[a-z])\s*[:.)-]\s+/gi;
+  const markers = [];
+  let match = markerPattern.exec(text);
+
+  while (match) {
+    const index = match.index + match[0].indexOf(match[1]);
+    const lookahead = text.slice(index, index + 360);
+    if (hasQuestionSignal(lookahead)) {
+      markers.push({ index, label: match[1] });
+    }
+    match = markerPattern.exec(text);
+  }
+
+  return markers;
+}
+
+function cleanQuestionCandidate(value) {
+  return value
+    .replace(/^\s*(?:quest(?:ao|ão)|exerc(?:icio|ício))\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function hasQuestionSignal(text) {
+  const normalized = normalizeText(text);
+  return /(calcule|determine|desenhe|projete|implemente|explique|indique|justifique|represente|construa|considere|dimensione|simplifique|obtenha|apresente|complete|preencha|analise|deduza|mostre)/.test(normalized) || /\?/.test(text);
+}
+
+function isLikelyExercise(text) {
+  const normalized = normalizeText(text);
+  if (text.length < 35) return false;
+  if (!hasQuestionSignal(text)) return false;
+  if (isBoilerplateText(normalized)) return false;
+  return true;
+}
+
+function isBoilerplateText(normalized) {
+  const boilerplateHits = [
+    "formulario",
+    "formula",
+    "cotacao",
+    "duracao",
+    "enunciado de avaliacao",
+    "modelo",
+    "pagina",
+    "classificacao",
+    "instrucoes",
+    "consulta",
+  ].filter((word) => normalized.includes(word)).length;
+
+  return boilerplateHits >= 2 && !hasQuestionSignal(normalized);
 }
 
 function classifyExercise(text, subject) {
@@ -393,7 +484,7 @@ function parseYearStart(academicYear) {
 
 function addExercisesFromForm(formData) {
   const subject = getSubject();
-  const pieces = splitExercises(formData.exerciseText);
+  const pieces = splitExamQuestions(formData.exerciseText);
   const now = new Date().toISOString();
   const existingSignatures = new Set(subject.exercises.map((exercise) => getExerciseSignature(exercise.text)));
 
@@ -572,6 +663,7 @@ async function loadFromSupabase() {
     subjects: subjects.map((subject) => ({
       id: subject.id,
       name: subject.name,
+      advice: subject.advice || "",
       customTopics: topics
         .filter((topic) => topic.subject_id === subject.id)
         .map((topic) => ({
@@ -595,6 +687,7 @@ async function loadFromSupabase() {
           keywords: exercise.keywords || [],
           signature: getExerciseSignature(exercise.text),
           sourceName: exercise.source_name || "",
+          solution: exercise.solution || "",
           createdAt: exercise.created_at,
         })),
     })),
@@ -607,6 +700,7 @@ async function syncToSupabase() {
   const subjects = state.subjects.map((subject) => ({
     id: subject.id,
     name: subject.name,
+    advice: subject.advice || "",
   }));
 
   const topics = state.subjects.flatMap((subject) =>
@@ -631,6 +725,7 @@ async function syncToSupabase() {
       assessment: exercise.assessment,
       difficulty: exercise.difficulty,
       exercise_type: exercise.type,
+      solution: exercise.solution || "",
       keywords: exercise.keywords || [],
       source_name: exercise.sourceName || "",
       created_at: exercise.createdAt,
@@ -987,6 +1082,7 @@ function render() {
 
   renderSubjects();
   renderMetrics(subject, predictions);
+  renderAdvice(subject, predictions);
   renderPreview(predictions);
   renderPredictions(predictions);
   renderExercisesByTopic(subject);
@@ -1038,6 +1134,41 @@ function renderMetrics(subject, predictions) {
   els.metrics.topics.textContent = topicCount;
   els.metrics.years.textContent = yearCount;
   els.metrics.mainTopic.textContent = predictions[0]?.topic || "-";
+}
+
+function renderAdvice(subject, predictions) {
+  els.subjectAdvice.value = subject.advice || "";
+  els.subjectAdvice.placeholder = predictions.length
+    ? "Ex: treinar primeiro os temas mais frequentes, resolver exames antigos e escrever resolucoes completas..."
+    : "Importa exames antigos para gerar conselhos com base nos temas e perguntas mais frequentes.";
+}
+
+function generateSubjectAdvice() {
+  const subject = getSubject();
+  const predictions = calculatePredictions(subject).slice(0, 4);
+
+  if (!predictions.length) {
+    els.subjectAdvice.value = "Ainda nao ha dados suficientes. Importa exames/frequencias anteriores e depois gera conselhos com base nos temas mais repetidos.";
+    return;
+  }
+
+  const topicLines = predictions.map((prediction, index) => {
+    const keywords = prediction.topKeywords.slice(0, 3).join(", ");
+    return `${index + 1}. ${prediction.topic}: treinar ${prediction.topType.toLowerCase()} e rever ${keywords || "os exercicios guardados"}.`;
+  });
+
+  els.subjectAdvice.value = [
+    `Para passar ${subject.name}, começa pelos temas que mais aparecem no historico:`,
+    ...topicLines,
+    "Metodo recomendado: resolver primeiro os exercicios ja guardados, escrever a resolucao completa, comparar padrões de pergunta e repetir os temas com maior percentagem em 'Mais provavel'.",
+  ].join("\n");
+}
+
+function saveSubjectAdvice() {
+  const subject = getSubject();
+  subject.advice = els.subjectAdvice.value.trim();
+  persist();
+  els.analysisPreview.textContent = "Conselhos da disciplina guardados.";
 }
 
 function renderPreview(predictions) {
@@ -1186,6 +1317,13 @@ function renderExercisesByTopic(subject) {
           <button class="delete-button" type="button" data-delete="${exercise.id}">Remover</button>
         </header>
         <p>${escapeHtml(cleanExerciseText(exercise.text))}</p>
+        <label class="solution-editor">
+          Resolucao do exercicio
+          <textarea data-solution="${exercise.id}" rows="4" placeholder="Escreve aqui a resolucao completa deste exercicio...">${escapeHtml(exercise.solution || "")}</textarea>
+        </label>
+        <div class="solution-actions">
+          <button class="secondary-button" type="button" data-save-solution="${exercise.id}">Guardar resolucao</button>
+        </div>
         <div class="prediction-meta">
           <span class="pill">${escapeHtml(exercise.difficulty)}</span>
           <span class="pill">${escapeHtml((exercise.keywords || []).slice(0, 3).join(", ") || topic)}</span>
@@ -1260,6 +1398,18 @@ function removeSubject(subjectId) {
   els.subjectManagerNote.textContent = `${subject?.name || "Disciplina"} anulada.`;
 }
 
+function saveExerciseSolution(exerciseId) {
+  const subject = getSubject();
+  const exercise = subject.exercises.find((item) => item.id === exerciseId);
+  const textarea = els.historyList.querySelector(`[data-solution="${CSS.escape(exerciseId)}"]`);
+
+  if (!exercise || !textarea) return;
+
+  exercise.solution = textarea.value.trim();
+  persist();
+  els.analysisPreview.textContent = "Resolucao guardada.";
+}
+
 function addSampleData() {
   const subject = getSubject();
   const years = ["2021/2022", "2022/2023", "2023/2024", "2024/2025"];
@@ -1283,11 +1433,12 @@ els.subjectForm.addEventListener("submit", (event) => {
   if (!name) return;
 
   const subject = {
-    id: `sub-${slugify(name)}-${Date.now()}`,
+    id: crypto.randomUUID(),
     name,
-    customTopics: [],
-    exercises: [],
-  };
+    advice: "",
+      customTopics: [],
+      exercises: [],
+    };
   state.subjects.push(subject);
   selectedSubjectId = subject.id;
   els.newSubject.value = "";
@@ -1295,6 +1446,10 @@ els.subjectForm.addEventListener("submit", (event) => {
 });
 
 els.documentImportButton.addEventListener("click", importDocumentFiles);
+
+els.generateAdvice.addEventListener("click", generateSubjectAdvice);
+
+els.saveAdvice.addEventListener("click", saveSubjectAdvice);
 
 els.documentFiles.addEventListener("change", () => {
   const files = [...(els.documentFiles.files || [])];
@@ -1358,6 +1513,12 @@ document.querySelector(".tabs").addEventListener("click", (event) => {
 });
 
 els.historyList.addEventListener("click", (event) => {
+  const solutionId = event.target.dataset.saveSolution;
+  if (solutionId) {
+    saveExerciseSolution(solutionId);
+    return;
+  }
+
   const id = event.target.dataset.delete;
   if (!id) return;
 

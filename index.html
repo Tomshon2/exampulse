@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>ExamPulse</title>
-    <link rel="stylesheet" href="styles.css?v=9">
+    <link rel="stylesheet" href="styles.css?v=10">
   </head>
   <body>
     <div class="app-shell">
@@ -62,6 +62,18 @@
           <div class="metric">
             <span>Tema dominante</span>
             <strong id="metric-main-topic">-</strong>
+          </div>
+        </section>
+
+        <section class="advice-panel" aria-label="Conselhos da disciplina">
+          <div>
+            <p class="eyebrow">Conselhos para passar</p>
+            <h2>Plano de estudo da disciplina</h2>
+          </div>
+          <textarea id="subject-advice" rows="4" placeholder="Escreve aqui conselhos para alunos: temas prioritarios, tipo de exercicios, estrategia de estudo..."></textarea>
+          <div class="advice-actions">
+            <button id="generate-advice" class="secondary-button" type="button">Gerar conselhos</button>
+            <button id="save-advice" class="primary-button" type="button">Guardar conselhos</button>
           </div>
         </section>
 
@@ -211,6 +223,6 @@
     <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="app.js?v=9"></script>
+    <script src="app.js?v=10"></script>
   </body>
 </html>

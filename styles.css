@@ -267,6 +267,42 @@ h2 {
   margin: 26px 0 18px;
 }
 
+.advice-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 1.4fr) auto;
+  gap: 14px;
+  align-items: start;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 18px;
+}
+
+.advice-panel h2 {
+  margin: 0;
+}
+
+.advice-panel textarea,
+.solution-editor textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  padding: 12px 13px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.advice-actions,
+.solution-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .metric {
   background: rgba(255, 255, 255, 0.78);
   border: 1px solid var(--line);
@@ -600,6 +636,14 @@ textarea {
   gap: 10px;
 }
 
+.solution-editor {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  color: var(--ink);
+  font-weight: 850;
+}
+
 .mini-label {
   color: var(--muted);
   font-size: 0.78rem;
@@ -759,6 +803,7 @@ textarea {
   }
 
   .summary-grid,
+  .advice-panel,
   .form-grid,
   .panel-layout,
   .prediction-layout {
@@ -781,6 +826,7 @@ textarea {
   .section-heading,
   .modal-header,
   .document-import,
+  .advice-actions,
   .form-footer {
     flex-direction: column;
     align-items: stretch;
@@ -795,6 +841,7 @@ textarea {
   }
 
   .summary-grid,
+  .advice-panel,
   .form-grid,
   .panel-layout,
   .prediction-layout {
