@@ -621,6 +621,43 @@ textarea {
   padding: 14px;
 }
 
+.document-group {
+  display: block;
+}
+
+.document-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+}
+
+.document-summary::-webkit-details-marker {
+  display: none;
+}
+
+.document-summary::after {
+  content: "+";
+  width: 32px;
+  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 8px;
+  background: #f0f5f3;
+  color: var(--teal-dark);
+  font-weight: 900;
+}
+
+.document-group[open] .document-summary::after {
+  content: "-";
+}
+
+.document-topics {
+  margin: 12px 0;
+}
+
 .topic-group-header h3 {
   margin: 0;
 }

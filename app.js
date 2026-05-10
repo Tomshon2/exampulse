@@ -292,6 +292,8 @@ function prepareExerciseText(rawText) {
     .replace(/\r/g, "")
     .replace(/[ \t]+/g, " ")
     .replace(/\s+(\d{1,2}\s*[.)]\s+(?=[A-Za-z]))/g, "\n\n$1")
+    .replace(/\s+(\d{1,2}\s*[\-\u2013\u2014]\s+(?=[A-Za-z]))/g, "\n\n$1")
+    .replace(/\s+(\d{1,2}\s*\?\s+(?=[A-Za-z]))/g, "\n\n$1")
     .replace(/\s+(\d+\s*[.,]?\s*[a-z]\s*[\).:-]\s+)/gi, "\n\n$1")
     .replace(/\s+((?:quest(?:ao|ão)|exerc(?:icio|ício))\s*\d+(?:[.,]\d+)*(?:\s*[a-z])?\s*[:.)-])/gi, "\n\n$1 ")
     .replace(/\s+(\d+(?:[.,]\d+){1,3}\s*[:.)-]\s+)/g, "\n\n$1")
@@ -321,6 +323,7 @@ function findQuestionMarkers(text) {
 function cleanQuestionCandidate(value) {
   const cleaned = value
     .replace(/^\s*(?:quest(?:ao|ão)|exerc(?:icio|ício))\s*/i, "")
+    .replace(/^\s*\d+(?:[.,]\d+)*\s*[a-z]?\s*[:.)\-\u2013\u2014?]\s*/i, "")
     .replace(/\s+/g, " ")
     .trim();
   return stripBoilerplatePrefix(cleaned);
@@ -328,7 +331,7 @@ function cleanQuestionCandidate(value) {
 
 function hasQuestionSignal(text) {
   const normalized = normalizeText(text);
-  return /(calcule|determine|desenhe|projete|implemente|explique|indique|justifique|represente|construa|considere|dimensione|simplifique|obtenha|apresente|complete|preencha|analise|deduza|mostre)/.test(normalized) || /\?/.test(text);
+  return /(calcule|determine|desenhe|projete|implemente|explique|indique|justifique|represente|construa|considere|dimensione|simplifique|obtenha|apresente|complete|preencha|analise|deduza|mostre)/.test(normalized) || /[A-Za-z]\?/.test(text);
 }
 
 function looksLikeDocumentHeaderMarker(text) {
@@ -532,6 +535,40 @@ function parseYearStart(academicYear) {
   return match ? Number(match[0]) : new Date().getFullYear();
 }
 
+function inferAcademicYear(text, fileName = "") {
+  const source = normalizeText(`${fileName}\n${String(text).slice(0, 2200)}`);
+  const explicit = source.match(/(?:ano\s+lectivo|ano\s+letivo|ano\s+let)\D*(\d{2,4})\s*[/\\-]\s*(\d{2,4})/);
+  if (explicit) {
+    const start = normalizeYear(explicit[1]);
+    const end = normalizeYear(explicit[2], start);
+    if (start && end) return `${start}/${end}`;
+  }
+
+  const dateMatch = source.match(/\b(\d{1,2})\s*[/.-]\s*(\d{1,2})\s*[/.-]\s*(20\d{2})\b/);
+  if (dateMatch) {
+    const month = Number(dateMatch[2]);
+    const year = Number(dateMatch[3]);
+    const start = month >= 9 ? year : year - 1;
+    return `${start}/${start + 1}`;
+  }
+
+  const fileYear = source.match(/\b(20\d{2})\b/);
+  if (fileYear) {
+    const year = Number(fileYear[1]);
+    return `${year}/${year + 1}`;
+  }
+
+  return "";
+}
+
+function normalizeYear(value, startYear = null) {
+  const year = Number(value);
+  if (!Number.isFinite(year)) return null;
+  if (year >= 1000) return year;
+  const century = startYear ? Math.floor(startYear / 100) * 100 : 2000;
+  return century + year;
+}
+
 function detectDocumentType(text, fileName = "") {
   const header = normalizeText(`${fileName}\n${String(text).slice(0, 1800)}`);
   const hits = (words) => words.filter((word) => header.includes(word)).length;
@@ -651,7 +688,8 @@ async function importDocumentFiles() {
   }
 
   const metadata = getExerciseMetadataFromForm();
-  if (!metadata.academicYear.trim()) {
+  const shouldInferAcademicYear = !metadata.academicYear.trim();
+  if (shouldInferAcademicYear) {
     metadata.academicYear = guessCurrentAcademicYear();
   }
 
@@ -670,8 +708,12 @@ async function importDocumentFiles() {
       try {
         const text = await extractTextFromFile(file);
         const documentInfo = detectDocumentType(text, file.name);
+        const academicYear = shouldInferAcademicYear
+          ? inferAcademicYear(text, file.name) || metadata.academicYear
+          : metadata.academicYear;
         const added = addExercisesFromForm({
           ...metadata,
+          academicYear,
           assessment: documentInfo.assessment || metadata.assessment,
           sourceType: documentInfo.sourceType,
           exerciseText: text,
@@ -1224,7 +1266,7 @@ function render() {
   renderAdvice(subject, predictions);
   renderPreview(predictions);
   renderPredictions(predictions);
-  renderExercisesByTopic(subject);
+  renderExercisesByDocument(subject);
   persist();
 }
 
@@ -1410,6 +1452,98 @@ function renderHistory(subject) {
 
 function emptyState() {
   return document.querySelector("#empty-state-template").content.firstElementChild.cloneNode(true);
+}
+
+function renderExercisesByDocument(subject) {
+  els.historyList.innerHTML = "";
+
+  if (!subject.exercises.length) {
+    els.historyList.append(emptyState());
+    return;
+  }
+
+  const byDocument = new Map();
+
+  for (const exercise of subject.exercises) {
+    const key = getDocumentKey(exercise);
+    if (!byDocument.has(key)) byDocument.set(key, []);
+    byDocument.get(key).push(exercise);
+  }
+
+  const sortedGroups = [...byDocument.values()].sort((a, b) => {
+    const newestA = Math.max(...a.map((exercise) => exercise.yearStart || 0));
+    const newestB = Math.max(...b.map((exercise) => exercise.yearStart || 0));
+    return newestB - newestA || getDocumentLabel(a[0]).localeCompare(getDocumentLabel(b[0]));
+  });
+
+  for (const exercises of sortedGroups) {
+    const firstExercise = exercises[0];
+    const topics = [...new Set(exercises.flatMap((exercise) => exercise.topics || []))].slice(0, 5);
+    const group = document.createElement("details");
+    group.className = "topic-group document-group";
+    group.open = sortedGroups.length === 1;
+    group.innerHTML = `
+      <summary class="topic-group-header document-summary">
+        <div>
+          <h3>${escapeHtml(getDocumentLabel(firstExercise))}</h3>
+          <p>${exercises.length} pergunta${exercises.length > 1 ? "s" : ""} separada${exercises.length > 1 ? "s" : ""} deste documento</p>
+        </div>
+        <span class="pill">${escapeHtml(firstExercise.sourceType || "Documento")}</span>
+      </summary>
+      <div class="prediction-meta document-topics">
+        ${topics.map((topic) => `<span class="pill">${escapeHtml(topic)}</span>`).join("")}
+      </div>
+      <div class="topic-exercises"></div>
+    `;
+
+    const list = group.querySelector(".topic-exercises");
+    exercises.forEach((exercise, index) => {
+      const primaryTopic = exercise.topics?.[0] || "Tema por confirmar";
+      const card = document.createElement("article");
+      card.className = "history-card";
+      card.innerHTML = `
+        <header>
+          <div>
+            <strong>Pergunta ${index + 1}</strong>
+            <div class="mini-label">${escapeHtml(primaryTopic)} · ${escapeHtml(exercise.type || "Exercicio")}</div>
+            <div class="mini-label">${escapeHtml(exercise.academicYear)} · ${escapeHtml(exercise.semester)}. semestre · ${escapeHtml(exercise.month)} · ${escapeHtml(exercise.assessment)}</div>
+          </div>
+        </header>
+        <p>${escapeHtml(cleanExerciseText(exercise.text))}</p>
+        <label class="solution-editor">
+          Resolucao do exercicio
+          <textarea data-solution="${exercise.id}" rows="4" placeholder="Escreve aqui a resolucao completa deste exercicio...">${escapeHtml(exercise.solution || "")}</textarea>
+        </label>
+        <div class="solution-actions">
+          <button class="secondary-button" type="button" data-save-solution="${exercise.id}">Guardar resolucao</button>
+        </div>
+        <div class="prediction-meta">
+          <span class="pill">${escapeHtml(exercise.difficulty)}</span>
+          <span class="pill">${escapeHtml(primaryTopic)}</span>
+          <span class="pill">${escapeHtml((exercise.keywords || []).slice(0, 3).join(", ") || primaryTopic)}</span>
+        </div>
+      `;
+      list.append(card);
+    });
+
+    els.historyList.append(group);
+  }
+}
+
+function getDocumentKey(exercise) {
+  return [
+    exercise.sourceName || "manual",
+    exercise.academicYear || "",
+    exercise.assessment || "",
+    exercise.createdAt ? exercise.createdAt.slice(0, 10) : "",
+  ].join("|");
+}
+
+function getDocumentLabel(exercise) {
+  const source = exercise.sourceName ? exercise.sourceName.replace(/\.[^.]+$/, "") : "Exercicios colados";
+  const assessment = exercise.assessment || exercise.sourceType || "Documento";
+  const year = exercise.academicYear || "";
+  return `${assessment} ${year}`.trim() + (source ? ` · ${source}` : "");
 }
 
 function renderExercisesByTopic(subject) {
