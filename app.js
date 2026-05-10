@@ -373,6 +373,9 @@ function uniqueNormalizedTerms(list) {
 
 function splitExamQuestions(rawText) {
   const preparedText = prepareExerciseText(rawText);
+  const inlineQuestions = splitInlineQuestionCandidates(preparedText);
+  if (inlineQuestions.length > 1) return inlineQuestions;
+
   const markers = findQuestionMarkers(preparedText);
 
   if (markers.length) {
@@ -387,6 +390,59 @@ function splitExamQuestions(rawText) {
     .split(/\n\s*\n\s*\n+|\n\s*[-_=]{4,}\s*\n|\n\s*\*{4,}\s*\n/)
     .map(cleanQuestionCandidate)
     .filter(isLikelyExercise);
+}
+
+function splitInlineQuestionCandidates(rawText) {
+  const text = String(rawText || "").replace(/\r/g, "").replace(/[ \t]+/g, " ").trim();
+  const markers = findInlineQuestionMarkers(text);
+  if (markers.length < 2) return [];
+
+  return markers
+    .map((marker, index) => {
+      const end = markers[index + 1]?.index ?? text.length;
+      return cleanQuestionCandidate(text.slice(marker.index, end));
+    })
+    .filter(isLikelyExercise);
+}
+
+function findInlineQuestionMarkers(text) {
+  const value = String(text || "");
+  const markerPattern = new RegExp(
+    `(^|[\\s;:.])((?:(?:pergunta|quest(?:ao|ão)|exerc(?:icio|ício))\\s*)?(\\d{1,2})\\s*(?:[.)]|[-\\u2010-\\u2015]+|[?ºª])?\\s*(?=${QUESTION_ACTION_PATTERN}\\b)|(?:(?:pergunta|quest(?:ao|ão)|exerc(?:icio|ício))\\s*)?(\\d{1,2})\\s*(?:[.)]|[-\\u2010-\\u2015]+))`,
+    "gi"
+  );
+  const markers = [];
+  let match = markerPattern.exec(value);
+
+  while (match) {
+    const number = Number(match[3] || match[4]);
+    const index = match.index + (match[1] || "").length;
+    const before = value.slice(Math.max(0, index - 4), index);
+    const after = value.slice(index, index + 220);
+    const looksLikeScore = /\(\s*$/.test(before) || /^\d{1,2}\s*[.)]\s*(?:$|[.,;:)]|\d)/.test(after);
+    if (
+      number >= 1 &&
+      number <= 30 &&
+      !looksLikeScore &&
+      hasQuestionSignal(after) &&
+      !looksLikeDocumentHeaderMarker(after)
+    ) {
+      markers.push({ index, number, raw: match[2] });
+    }
+    match = markerPattern.exec(value);
+  }
+
+  return dedupeInlineMarkers(markers);
+}
+
+function dedupeInlineMarkers(markers) {
+  const output = [];
+  for (const marker of markers) {
+    const previous = output[output.length - 1];
+    if (previous && Math.abs(previous.index - marker.index) < 3) continue;
+    output.push(marker);
+  }
+  return output;
 }
 
 function prepareExerciseText(rawText) {
@@ -430,6 +486,7 @@ function cleanQuestionCandidate(value) {
   const cleaned = value
     .replace(/^\s*pergunta\s*/i, "")
     .replace(/^\s*(?:quest(?:ao|ão)|exerc(?:icio|ício))\s*/i, "")
+    .replace(new RegExp(`^\\s*\\d{1,2}\\s+(?=${QUESTION_ACTION_PATTERN}\\b)`, "i"), "")
     .replace(/^\s*\d+(?:[.,]\d+)*\s*[a-z]?\s*[:.)\-\u2013\u2014?]\s*/i, "")
     .replace(/[ \t]+/g, " ")
     .replace(/\n{3,}/g, "\n\n")
@@ -1580,30 +1637,11 @@ const QuestionBoundaryModule = {
 
     if (!lines.length) return [];
 
-    const firstAnchorIndex = lines.findIndex((line) => isLineQuestionStart(line.text));
-    const candidateLines = firstAnchorIndex > 0 ? lines.slice(firstAnchorIndex) : lines;
+    const candidateLines = trimLinesBeforeFirstQuestion(lines);
     const blocks = hybridSegmentLines(candidateLines);
 
     const questions = blocks
-      .map((block, index) => {
-        const text = cleanQuestionCandidate(block.lines.map((line) => line.text).join("\n"));
-        const confidence = confidenceFromBoundaryScore(block.boundaryScore, text);
-        const images = ImageAssociationModule.attachImages(block, pages, options.pageImages || []);
-        return {
-          text,
-          images,
-          sourceFile: options.sourceFile,
-          sourceType: options.sourceType,
-          pageNumber: block.startPage,
-          questionNumber: inferQuestionNumber(block.anchorText) || index + 1,
-          confidence,
-          boundaryConfidence: block.boundaryScore,
-          ocrConfidence: block.ocrConfidence ?? options.ocrConfidence ?? null,
-          extractionStatus: confidence === "Baixa" || (block.ocrConfidence !== null && block.ocrConfidence < 0.55) ? "needs_review" : "ready",
-          analysisNotes: buildPipelineReviewNote(confidence, block),
-          bounds: block.bounds,
-        };
-      })
+      .flatMap((block, index) => buildQuestionRecordsFromBlock(block, index, pages, options))
       .filter((question) => isLikelyExercise(question.text));
 
     if (questions.length) return questions;
@@ -1640,6 +1678,73 @@ const ImageAssociationModule = {
     return images.slice(0, 4);
   },
 };
+
+function trimLinesBeforeFirstQuestion(lines) {
+  const firstAnchorIndex = lines.findIndex((line) => isLineQuestionStart(line.text) || findInlineQuestionMarkers(line.text).length);
+  if (firstAnchorIndex < 0) return lines;
+
+  const trimmed = lines.slice(firstAnchorIndex);
+  const firstMarker = findInlineQuestionMarkers(trimmed[0].text)[0];
+  if (firstMarker && firstMarker.index > 0) {
+    trimmed[0] = {
+      ...trimmed[0],
+      text: trimmed[0].text.slice(firstMarker.index).trim(),
+      x0: Math.min(trimmed[0].x1 - 12, trimmed[0].x0 + Math.max(0, firstMarker.index) * 4),
+    };
+  }
+  return trimmed;
+}
+
+function buildQuestionRecordsFromBlock(block, index, pages, options) {
+  const rawText = block.lines.map((line) => line.text).join("\n");
+  const inlineQuestions = splitInlineQuestionCandidates(rawText);
+  const blockImages = ImageAssociationModule.attachImages(block, pages, options.pageImages || []);
+
+  if (inlineQuestions.length > 1) {
+    const imageTarget = chooseInlineImageTarget(inlineQuestions);
+    return inlineQuestions.map((text, inlineIndex) => {
+      const confidence = confidenceFromBoundaryScore(Math.max(block.boundaryScore, 0.76), text);
+      return {
+        text,
+        images: inlineIndex === imageTarget ? blockImages : [],
+        sourceFile: options.sourceFile,
+        sourceType: options.sourceType,
+        pageNumber: block.startPage,
+        questionNumber: inferQuestionNumber(text) || inlineIndex + 1,
+        confidence,
+        boundaryConfidence: Math.max(block.boundaryScore, 0.76),
+        ocrConfidence: block.ocrConfidence ?? options.ocrConfidence ?? null,
+        extractionStatus: confidence === "Baixa" || (block.ocrConfidence !== null && block.ocrConfidence < 0.55) ? "needs_review" : "ready",
+        analysisNotes: buildPipelineReviewNote(confidence, { ...block, inlineSplit: true }),
+        bounds: block.bounds,
+      };
+    });
+  }
+
+  const text = cleanQuestionCandidate(rawText);
+  const confidence = confidenceFromBoundaryScore(block.boundaryScore, text);
+  return [{
+    text,
+    images: blockImages,
+    sourceFile: options.sourceFile,
+    sourceType: options.sourceType,
+    pageNumber: block.startPage,
+    questionNumber: inferQuestionNumber(block.anchorText) || index + 1,
+    confidence,
+    boundaryConfidence: block.boundaryScore,
+    ocrConfidence: block.ocrConfidence ?? options.ocrConfidence ?? null,
+    extractionStatus: confidence === "Baixa" || (block.ocrConfidence !== null && block.ocrConfidence < 0.55) ? "needs_review" : "ready",
+    analysisNotes: buildPipelineReviewNote(confidence, block),
+    bounds: block.bounds,
+  }];
+}
+
+function chooseInlineImageTarget(questions) {
+  const visualIndex = questions.findIndex((text) =>
+    /(figura|imagem|diagrama|grafico|esquema|circuito|tabela|mapa|maquina\s+(?:a|à)\s+direita|máquina\s+(?:a|à)\s+direita)/i.test(normalizeText(text))
+  );
+  return visualIndex >= 0 ? visualIndex : -1;
+}
 
 function groupPdfTextItemsIntoLines(items, viewport, pageNumber) {
   const raw = items
@@ -1897,6 +2002,7 @@ function buildPipelineReviewNote(confidence, block) {
   const notes = [];
   if (confidence === "Baixa") notes.push("Rever corte da pergunta");
   if ((block.ocrConfidence ?? 1) < 0.55) notes.push("OCR com baixa confianca");
+  if (block.inlineSplit) notes.push("Separacao feita por numeracao no mesmo bloco OCR");
   if ((block.lines || []).filter((line) => isLineQuestionStart(line.text)).length > 1) notes.push("Possivel juncao de perguntas");
   return notes.join("; ") || "";
 }
