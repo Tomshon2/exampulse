@@ -460,6 +460,12 @@ h2 {
   margin-top: 16px;
 }
 
+.document-actions {
+  display: grid;
+  gap: 8px;
+  align-content: stretch;
+}
+
 .file-drop {
   min-height: 84px;
   border: 1px dashed #afbfba;
@@ -487,6 +493,110 @@ h2 {
 .file-drop small {
   color: var(--muted);
   line-height: 1.35;
+}
+
+.manual-selection-panel {
+  margin-top: 16px;
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fbfa;
+  padding: 14px;
+}
+
+.manual-selection-panel[hidden] {
+  display: none;
+}
+
+.manual-selection-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.manual-selection-header p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.manual-selection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.manual-page-list {
+  display: grid;
+  gap: 14px;
+  max-height: min(72vh, 850px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.manual-page-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+}
+
+.manual-page-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.manual-page-surface {
+  position: relative;
+  width: 100%;
+  border: 1px solid var(--line);
+  background: #fff;
+  overflow: hidden;
+}
+
+.manual-page-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.manual-page-overlay {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.manual-selection-box {
+  position: absolute;
+  border: 3px solid var(--coral);
+  background: rgba(217, 86, 63, 0.11);
+  box-shadow: 0 0 0 9999px rgba(16, 39, 42, 0.04);
+  pointer-events: none;
+}
+
+.manual-selection-box.draft {
+  border-style: dashed;
+}
+
+.manual-selection-box span {
+  position: absolute;
+  left: -3px;
+  top: -30px;
+  min-width: 96px;
+  border-radius: 8px 8px 0 0;
+  background: var(--coral);
+  color: #fff;
+  padding: 5px 8px;
+  font-size: 0.78rem;
+  font-weight: 900;
 }
 
 textarea {
