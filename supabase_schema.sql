@@ -32,12 +32,22 @@ create table if not exists public.exercises (
   solution text,
   keywords text[] not null default '{}',
   images jsonb not null default '[]'::jsonb,
+  confidence text not null default 'Media',
+  analysis_notes text not null default '',
+  question_number integer,
+  answer_structure text not null default '',
+  notes text not null default '',
   source_name text,
   source_type text,
   created_at timestamptz not null default now()
 );
 
 alter table public.exercises add column if not exists images jsonb not null default '[]'::jsonb;
+alter table public.exercises add column if not exists confidence text not null default 'Media';
+alter table public.exercises add column if not exists analysis_notes text not null default '';
+alter table public.exercises add column if not exists question_number integer;
+alter table public.exercises add column if not exists answer_structure text not null default '';
+alter table public.exercises add column if not exists notes text not null default '';
 
 create table if not exists public.documents (
   id uuid primary key default gen_random_uuid(),
