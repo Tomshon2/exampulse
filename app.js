@@ -275,10 +275,11 @@ function splitExamQuestions(rawText) {
   const markers = findQuestionMarkers(preparedText);
 
   if (markers.length) {
-    return markers
+    const markedQuestions = markers
       .map((marker, index) => preparedText.slice(marker.index, markers[index + 1]?.index || preparedText.length))
       .map(cleanQuestionCandidate)
       .filter(isLikelyExercise);
+    if (markedQuestions.length) return markedQuestions;
   }
 
   return preparedText
@@ -290,15 +291,18 @@ function splitExamQuestions(rawText) {
 function prepareExerciseText(rawText) {
   return rawText
     .replace(/\r/g, "")
+    .replace(/[\u00a0\f]+/g, " ")
+    .replace(/[\u2013\u2014]/g, "-")
     .replace(/[ \t]+/g, " ")
-    .replace(/\s+(\d{1,2}\s*[.)]\s+(?=[A-Za-z]))/g, "\n\n$1")
-    .replace(/\s+(\d{1,2}\s*[\-\u2013\u2014]\s+(?=[A-Za-z]))/g, "\n\n$1")
-    .replace(/\s+(\d{1,2}\s*\?\s+(?=[A-Za-z]))/g, "\n\n$1")
+    .replace(/\s+(\d{1,2}(?:[.,]\d{1,2}){0,3}\s*[.)]\s+(?=[A-Za-z0-9]))/g, "\n\n$1")
+    .replace(/\s+(\d{1,2}(?:[.,]\d{1,2}){0,3}\s*-\s+(?=[A-Za-z0-9]))/g, "\n\n$1")
+    .replace(/(^|\s+)(\d{1,2}(?:[.,]\d{1,2}){0,3})\s*\?\s+(?=[A-Za-z0-9])/g, "$1\n\n$2- ")
     .replace(/\s+(\d+\s*[.,]?\s*[a-z]\s*[\).:-]\s+)/gi, "\n\n$1")
+    .replace(/\s+(pergunta\s*\d+(?:[.,]\d+)*(?:\s*[a-z])?\s*[:.)-])/gi, "\n\n$1 ")
     .replace(/\s+((?:quest(?:ao|ão)|exerc(?:icio|ício))\s*\d+(?:[.,]\d+)*(?:\s*[a-z])?\s*[:.)-])/gi, "\n\n$1 ")
     .replace(/\s+(\d+(?:[.,]\d+){1,3}\s*[:.)-]\s+)/g, "\n\n$1")
     .replace(/\s+(\d+\s*[a-z]\s*[:.)-]\s+)/gi, "\n\n$1")
-    .replace(/\s+([a-z]\s*[\).]\s+(?=(?:calcule|determine|desenhe|projete|implemente|explique|indique|justifique|represente|construa|considere)\b))/gi, "\n\n$1")
+    .replace(/\s+([a-z]\s*[\).:-]\s+(?=(?:calcule|determine|desenhe|projete|implemente|explique|indique|justifique|represente|construa|considere|apresente|descreva|identifique|complete|mostre|converta|codifique|liste|enumere|assinale|responda)\b))/gi, "\n\n$1")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -322,6 +326,7 @@ function findQuestionMarkers(text) {
 
 function cleanQuestionCandidate(value) {
   const cleaned = value
+    .replace(/^\s*pergunta\s*/i, "")
     .replace(/^\s*(?:quest(?:ao|ão)|exerc(?:icio|ício))\s*/i, "")
     .replace(/^\s*\d+(?:[.,]\d+)*\s*[a-z]?\s*[:.)\-\u2013\u2014?]\s*/i, "")
     .replace(/\s+/g, " ")
@@ -331,7 +336,7 @@ function cleanQuestionCandidate(value) {
 
 function hasQuestionSignal(text) {
   const normalized = normalizeText(text);
-  return /(calcule|determine|desenhe|projete|implemente|explique|indique|justifique|represente|construa|considere|dimensione|simplifique|obtenha|apresente|complete|preencha|analise|deduza|mostre)/.test(normalized) || /[A-Za-z]\?/.test(text);
+  return /(calcule|determine|desenhe|projete|implemente|explique|indique|justifique|represente|construa|considere|dimensione|simplifique|obtenha|apresente|complete|preencha|analise|deduza|mostre|descreva|identifique|converta|codifique|liste|enumere|assinale|responda|avalie|classifique|derive|prove|trace|esboce|compare|discuta)/.test(normalized) || /[A-Za-z]\?/.test(text);
 }
 
 function looksLikeDocumentHeaderMarker(text) {
@@ -634,6 +639,7 @@ function addExercisesFromForm(formData) {
   const subject = getSubject();
   const pieces = splitExamQuestions(formData.exerciseText);
   const now = new Date().toISOString();
+  const sourceName = formData.sourceName || getManualSourceName(now);
   const existingSignatures = new Set(subject.exercises.map((exercise) => getExerciseSignature(exercise.text)));
 
   const newExercises = [];
@@ -658,7 +664,7 @@ function addExercisesFromForm(formData) {
       month: formData.month,
       assessment: formData.assessment,
       sourceType: formData.sourceType || "Manual",
-      sourceName: formData.sourceName || "",
+      sourceName,
       solution: "",
       createdAt: now,
       ...analysis,
@@ -669,6 +675,17 @@ function addExercisesFromForm(formData) {
   persist();
   newExercises.skippedDuplicates = skippedDuplicates;
   return newExercises;
+}
+
+function getManualSourceName(dateValue) {
+  const date = new Date(dateValue);
+  const stamp = date.toLocaleString("pt-PT", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `Exercicios colados ${stamp}`;
 }
 
 function getExerciseSignature(text) {
