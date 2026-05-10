@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>ExamPulse</title>
-    <link rel="stylesheet" href="styles.css?v=15">
+    <link rel="stylesheet" href="styles.css?v=16">
   </head>
   <body>
     <div class="app-shell">
@@ -41,7 +41,7 @@
 
         <section class="summary-grid" aria-label="Resumo">
           <div class="metric">
-            <span>Perguntas reais</span>
+            <span>Perguntas dos exames</span>
             <strong id="metric-exercises">0</strong>
           </div>
           <div class="metric">
@@ -62,9 +62,8 @@
           <button class="tab active" type="button" data-tab="dashboard">Dashboard</button>
           <button class="tab" type="button" data-tab="import">Importar documentos</button>
           <button class="tab" type="button" data-tab="documents">Documentos analisados</button>
-          <button class="tab" type="button" data-tab="questions">Perguntas reais</button>
-          <button class="tab" type="button" data-tab="themes">Temas provaveis</button>
-          <button class="tab" type="button" data-tab="study">Plano de estudo</button>
+          <button class="tab" type="button" data-tab="questions">Perguntas dos exames</button>
+          <button class="tab" type="button" data-tab="themes">Gerar proximos testes</button>
         </nav>
 
         <section id="dashboard-panel" class="panel active-panel">
@@ -86,8 +85,7 @@
             <aside class="dashboard-actions">
               <h2>Acoes principais</h2>
               <button class="primary-button" type="button" data-go-tab="import">Importar mais exames</button>
-              <button class="secondary-button" type="button" data-go-tab="questions">Ver perguntas reais</button>
-              <button class="secondary-button" type="button" data-go-tab="study">Ver plano de estudo</button>
+              <button class="secondary-button" type="button" data-go-tab="questions">Ver perguntas dos exames</button>
             </aside>
           </div>
         </section>
@@ -146,7 +144,7 @@
                 <div class="file-drop">
                   <label for="document-file">Escolher exames ou testes</label>
                   <input id="document-file" type="file" accept=".txt,.md,.pdf,.docx,.png,.jpg,.jpeg,.webp,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,image/webp" multiple>
-                  <small id="document-file-status">PDF, Word, TXT ou imagem. Para PDF/imagem podes desenhar as zonas de cada pergunta.</small>
+                  <small id="document-file-status">PDF, Word, TXT ou imagem. Para PDF/imagem podes desenhar a zona de cada pergunta.</small>
                 </div>
                 <div class="document-actions">
                   <button id="manual-select-button" class="primary-button" type="button">Selecionar perguntas</button>
@@ -169,20 +167,14 @@
                 <div id="manual-page-list" class="manual-page-list"></div>
               </section>
 
-              <label class="wide-label">
-                Colar perguntas reais manualmente
-                <textarea name="exerciseText" rows="13" placeholder="1. Simplifique a funcao logica...&#10;&#10;2. Desenhe um contador sincrono...&#10;&#10;3. Considere uma memoria ROM..."></textarea>
-              </label>
-
               <div class="form-footer">
                 <p id="analysis-preview">Depois da analise aparece aqui o resumo da importacao.</p>
-                <button class="primary-button" type="submit">Analisar e guardar</button>
               </div>
             </form>
 
             <aside class="insight-panel">
               <h2>Como a app trata o documento</h2>
-              <p class="muted-copy">A app procura cabecalhos de teste/exame, numeracao, espacamentos e quebras visuais para separar perguntas reais. Quando houver duvidas, marca a pergunta para revisao.</p>
+              <p class="muted-copy">A app procura cabecalhos de teste/exame, numeracao, espacamentos e quebras visuais para separar perguntas dos exames. Quando houver duvidas, marca a pergunta para revisao.</p>
               <p class="muted-copy">Em PDFs ou imagens digitalizadas tenta ainda recortar a zona visual da pergunta para manter figuras associadas ao enunciado.</p>
             </aside>
           </div>
@@ -202,7 +194,7 @@
           <div class="section-heading">
             <div>
               <p class="eyebrow">Base de conhecimento</p>
-              <h2>Perguntas reais separadas por documento</h2>
+              <h2>Perguntas dos exames separadas por documento</h2>
             </div>
             <button id="clear-subject" class="danger-button" type="button">Limpar dados de teste</button>
           </div>
@@ -216,48 +208,29 @@
         </section>
 
         <section id="themes-panel" class="panel">
-          <div class="prediction-layout">
+          <div class="prediction-layout generator-layout">
             <div>
               <div class="section-heading">
                 <div>
-                  <p class="eyebrow">Ranking de estudo</p>
-                  <h2>Temas provaveis com explicacao</h2>
+                  <p class="eyebrow">Historico dos exames</p>
+                  <h2>Temas que ajudam a gerar o proximo teste</h2>
                 </div>
                 <button id="seed-button" class="secondary-button" type="button">Adicionar exemplo</button>
               </div>
               <div id="prediction-list" class="prediction-list"></div>
-              <section class="advice-panel" aria-label="Gerador de teste exemplo">
+              <section class="advice-panel" aria-label="Gerar possiveis proximos testes">
                 <div>
-                  <p class="eyebrow">Gerador de exame</p>
-                  <h2>Simulacao informada por historico</h2>
+                  <p class="eyebrow">Gerador</p>
+                  <h2>Gerar possiveis proximos testes</h2>
                 </div>
                 <div class="advice-actions">
-                  <button id="generate-frequent-test" class="secondary-button" type="button">Gerar teste (mais frequentes)</button>
-                  <button id="generate-overdue-test" class="secondary-button" type="button">Gerar teste (mais atrasadas)</button>
+                  <button id="generate-frequent-test" class="secondary-button" type="button">Mais frequentes</button>
+                  <button id="generate-overdue-test" class="secondary-button" type="button">Mais tempo sem sair</button>
                 </div>
                 <textarea id="generated-test-output" rows="12" placeholder="O teste gerado aparece aqui..."></textarea>
               </section>
             </div>
-            <aside class="suggestions">
-              <h2>O que pode voltar a sair</h2>
-              <div id="exercise-suggestions"></div>
-            </aside>
           </div>
-        </section>
-
-        <section id="study-panel" class="panel">
-          <section class="advice-panel study-advice" aria-label="Conselhos da disciplina">
-            <div>
-              <p class="eyebrow">Conselhos para passar</p>
-              <h2>Plano de estudo da disciplina</h2>
-            </div>
-            <textarea id="subject-advice" rows="4" placeholder="Notas livres para alunos: estrategia, cuidados do professor, erros comuns..."></textarea>
-            <div class="advice-actions">
-              <button id="generate-advice" class="secondary-button" type="button">Gerar conselhos</button>
-              <button id="save-advice" class="primary-button" type="button">Guardar conselhos</button>
-            </div>
-          </section>
-          <div id="study-plan" class="study-plan"></div>
         </section>
       </main>
     </div>
@@ -268,7 +241,7 @@
           <span></span><span></span><span></span><span></span>
         </div>
         <h3>Ainda nao ha perguntas suficientes</h3>
-        <p>Depois de importares exames antigos, a app separa perguntas reais e calcula prioridades por tema.</p>
+        <p>Depois de importares exames antigos, a app separa perguntas dos exames e calcula prioridades por tema.</p>
       </div>
     </template>
 

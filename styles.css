@@ -283,8 +283,7 @@ h2 {
   margin: 0;
 }
 
-.advice-panel textarea,
-.solution-editor textarea {
+.advice-panel textarea {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -385,6 +384,10 @@ h2 {
   grid-template-columns: minmax(0, 1fr) 330px;
   gap: 18px;
   align-items: start;
+}
+
+.generator-layout {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .dashboard-layout {
@@ -937,12 +940,104 @@ textarea {
   gap: 10px;
 }
 
-.solution-editor {
+.solution-uploader {
   display: grid;
   gap: 8px;
   margin-top: 12px;
   color: var(--ink);
   font-weight: 850;
+}
+
+.solution-uploader {
+  padding: 12px;
+  border: 1px dashed #afbfba;
+  border-radius: 8px;
+  background: #f8fbfa;
+}
+
+.solution-uploader-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.solution-uploader-head span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.file-import-control {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.file-import-control span {
+  color: var(--teal-dark);
+  font-weight: 900;
+}
+
+.solution-file-list {
+  display: grid;
+  gap: 8px;
+}
+
+.solution-file {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.solution-file img {
+  width: 92px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+
+.solution-file a {
+  color: var(--teal-dark);
+  font-weight: 850;
+  overflow-wrap: anywhere;
+}
+
+.file-chip {
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 72px;
+  border-radius: 6px;
+  background: #eef5f3;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.text-button {
+  display: block;
+  width: fit-content;
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #a23d2d;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.focus-card {
+  outline: 3px solid rgba(15, 118, 110, 0.35);
+  outline-offset: 3px;
 }
 
 .review-panel {
@@ -1182,4 +1277,8 @@ textarea {
   .tab {
     white-space: nowrap;
   }
+}
+
+.generator-layout {
+  grid-template-columns: minmax(0, 1fr);
 }

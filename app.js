@@ -242,6 +242,11 @@ function normalizeState(nextState) {
           signature: exercise.signature || getExerciseSignature(exercise.text || ""),
           sourceType: exercise.sourceType || exercise.source_type || "Manual",
           solution: exercise.solution || "",
+          solutionFiles: Array.isArray(exercise.solutionFiles)
+            ? exercise.solutionFiles
+            : Array.isArray(exercise.solution_files)
+              ? exercise.solution_files
+              : [],
           images: Array.isArray(exercise.images) ? exercise.images : [],
           confidence: exercise.confidence || estimateSegmentationConfidence(exercise.text || "", exercise),
           ocrConfidence: exercise.ocrConfidence ?? exercise.ocr_confidence ?? null,
@@ -984,6 +989,7 @@ function addExercisesFromForm(formData) {
       sourceFile: piece.sourceFile || sourceName,
       pageNumber: piece.pageNumber || null,
       solution: "",
+      solutionFiles: [],
       images: Array.isArray(piece.images) ? piece.images.slice(0, 4) : [],
       confidence,
       ocrConfidence: piece.ocrConfidence ?? null,
@@ -1027,7 +1033,7 @@ function getManualSourceName(dateValue) {
     hour: "2-digit",
     minute: "2-digit",
   });
-  return `Perguntas coladas ${stamp}`;
+  return `Perguntas importadas ${stamp}`;
 }
 
 function estimateSegmentationConfidence(text, piece = {}) {
@@ -1128,7 +1134,7 @@ async function importDocumentFiles() {
 
     if (!totalExercises) {
       showImportMessage(failedFiles.length
-        ? `Nao consegui extrair perguntas reais de: ${failedFiles.join(", ")}.`
+        ? `Nao consegui extrair perguntas dos exames de: ${failedFiles.join(", ")}.`
         : totalSkipped
           ? `Documento ja importado. Ignorei ${totalSkipped} perguntas duplicadas.`
           : "Nao encontrei perguntas claras no documento.");
@@ -1139,7 +1145,7 @@ async function importDocumentFiles() {
     const duplicateNote = totalSkipped ? ` Ignorei ${totalSkipped} duplicados.` : "";
     const sourceNote = sourceTypes.size ? ` Tipo detetado: ${[...sourceTypes].join(", ")}.` : "";
     const lowConfidence = getSubject().exercises.filter((exercise) => exercise.confidence === "Baixa").length;
-    showImportMessage(`${totalExercises} perguntas reais importadas.${sourceNote} Temas identificados/criados: ${[...topicNames].join(", ")}. Perguntas para rever: ${lowConfidence}.${duplicateNote}${failedNote}`);
+    showImportMessage(`${totalExercises} perguntas dos exames importadas.${sourceNote} Temas identificados/criados: ${[...topicNames].join(", ")}. Perguntas para rever: ${lowConfidence}.${duplicateNote}${failedNote}`);
   } finally {
     els.documentImportButton.disabled = false;
     els.documentImportButton.textContent = "Importar e analisar";
@@ -1562,6 +1568,7 @@ async function loadFromSupabase() {
           sourceName: exercise.source_name || "",
           sourceType: exercise.source_type || "Documento",
           solution: exercise.solution || "",
+          solutionFiles: Array.isArray(exercise.solution_files) ? exercise.solution_files : [],
           images: Array.isArray(exercise.images) ? exercise.images : [],
           confidence: exercise.confidence || "Media",
           ocrConfidence: exercise.ocr_confidence ?? null,
@@ -1659,6 +1666,7 @@ async function buildExerciseRowsForSync(options = {}) {
           row.analysis_notes = exercise.analysisNotes || "";
           row.question_number = exercise.questionNumber || null;
           row.answer_structure = exercise.answerStructure || "";
+          row.solution_files = Array.isArray(exercise.solutionFiles) ? exercise.solutionFiles : [];
           row.notes = exercise.notes || "";
           row.ocr_confidence = exercise.ocrConfidence ?? null;
           row.boundary_confidence = exercise.boundaryConfidence ?? null;
@@ -1684,7 +1692,7 @@ function isMissingImagesColumnError(error) {
 
 function isMissingExtendedExerciseColumnError(error) {
   const text = String(error?.message || "").toLowerCase();
-  return ["confidence", "analysis_notes", "question_number", "answer_structure", "notes", "ocr_confidence", "boundary_confidence", "topic_confidence", "extraction_status", "page_number", "source_file", "bounds"].some((column) =>
+  return ["confidence", "analysis_notes", "question_number", "answer_structure", "notes", "solution_files", "ocr_confidence", "boundary_confidence", "topic_confidence", "extraction_status", "page_number", "source_file", "bounds"].some((column) =>
     text.includes(column) && text.includes("column")
   );
 }
@@ -2928,13 +2936,11 @@ function render() {
 
   renderSubjects();
   renderMetrics(subject, predictions);
-  renderAdvice(subject, predictions);
   renderPreview(predictions);
   renderDocuments(subject);
   renderQuestionFilters(subject);
   renderPredictions(predictions);
   renderExercisesByDocument(subject);
-  renderStudyPlan(subject, predictions);
   persist();
 }
 
@@ -3042,13 +3048,15 @@ function renderDocuments(subject) {
 }
 
 function renderAdvice(subject, predictions) {
+  if (!els.subjectAdvice) return;
   els.subjectAdvice.value = subject.advice || "";
   els.subjectAdvice.placeholder = predictions.length
-    ? "Ex: treinar primeiro os temas mais frequentes, rever perguntas reais e escrever resolucoes completas..."
+    ? "Ex: treinar primeiro os temas mais frequentes e rever perguntas dos exames com resolucoes completas..."
     : "Importa exames antigos para gerar conselhos com base nos temas e perguntas mais frequentes.";
 }
 
 function generateSubjectAdvice() {
+  if (!els.subjectAdvice) return;
   const subject = getSubject();
   const predictions = calculatePredictions(subject).slice(0, 4);
 
@@ -3065,11 +3073,12 @@ function generateSubjectAdvice() {
   els.subjectAdvice.value = [
     `Para passar ${subject.name}, começa pelos temas que mais aparecem no historico:`,
     ...topicLines,
-    "Metodo recomendado: resolver primeiro as perguntas reais guardadas, escrever a resolucao completa, comparar padroes de pergunta e repetir os temas com maior prioridade.",
+    "Metodo recomendado: resolver primeiro as perguntas dos exames guardadas, escrever a resolucao completa, comparar padroes de pergunta e repetir os temas com maior prioridade.",
   ].join("\n");
 }
 
 function saveSubjectAdvice() {
+  if (!els.subjectAdvice) return;
   const subject = getSubject();
   subject.advice = els.subjectAdvice.value.trim();
   persist();
@@ -3118,7 +3127,7 @@ function renderStudyPlan(subject, predictions) {
     },
     {
       title: "Proximos passos",
-      body: "1. Abrir as perguntas reais do tema prioritario.\n2. Escrever a resolucao completa.\n3. Comparar tipos de pergunta repetidos.\n4. Gerar uma simulacao por frequencia e outra por ausencia.",
+      body: "1. Abrir as perguntas dos exames do tema prioritario.\n2. Escrever a resolucao completa.\n3. Comparar tipos de pergunta repetidos.\n4. Gerar uma simulacao por frequencia e outra por ausencia.",
     },
     {
       title: "Metas semanais",
@@ -3144,11 +3153,9 @@ function renderStudyPlan(subject, predictions) {
 
 function renderPredictions(predictions) {
   els.predictionList.innerHTML = "";
-  els.exerciseSuggestions.innerHTML = "";
 
   if (!predictions.length) {
     els.predictionList.append(emptyState());
-    els.exerciseSuggestions.append(emptyState());
     return;
   }
 
@@ -3171,32 +3178,11 @@ function renderPredictions(predictions) {
       <p class="prediction-reason">${escapeHtml(buildPredictionExplanation(prediction))}</p>
       <p class="prediction-reason">Conceitos frequentes: ${escapeHtml(prediction.topKeywords.slice(0, 5).join(", ") || "ainda poucos dados")}</p>
       <div class="solution-actions">
-        <button class="secondary-button" type="button" data-filter-topic="${escapeHtml(prediction.topic)}">Ver perguntas reais</button>
+        <button class="secondary-button" type="button" data-filter-topic="${escapeHtml(prediction.topic)}">Ver perguntas dos exames</button>
+        ${prediction.examples?.[0]?.id ? `<button class="secondary-button" type="button" data-open-question-id="${escapeHtml(prediction.examples[0].id)}">Abrir exemplo</button>` : ""}
       </div>
     `;
     els.predictionList.append(card);
-  }
-
-  const suggestions = predictions.slice(0, 5);
-
-  for (const prediction of suggestions) {
-    const card = document.createElement("article");
-    card.className = "exercise-card";
-    card.innerHTML = `
-      <header>
-        <strong>${escapeHtml(prediction.likelyExercise.title)}</strong>
-        <span class="mini-label">${prediction.score}%</span>
-      </header>
-      <p>${escapeHtml(prediction.likelyExercise.prompt)}</p>
-      <p class="evidence-text">${escapeHtml(prediction.likelyExercise.evidence)}</p>
-      <div class="prediction-meta">
-        <span class="pill">${prediction.count} exemplos</span>
-        <span class="pill">${prediction.years.size} anos</span>
-        <span class="pill">${escapeHtml(prediction.sourceTypes.slice(0, 2).join(", "))}</span>
-        <span class="pill">${escapeHtml(prediction.topKeywords.slice(0, 2).join(", ") || prediction.topic)}</span>
-      </div>
-    `;
-    els.exerciseSuggestions.append(card);
   }
 }
 
@@ -3260,12 +3246,16 @@ function matchesQuestionFilters(exercise, filters) {
   if (filters.topic && !(exercise.topics || []).includes(filters.topic)) return false;
   if (filters.year && exercise.academicYear !== filters.year) return false;
   if (filters.assessment && exercise.assessment !== filters.assessment) return false;
-  if (filters.status === "with-solution" && !exercise.solution) return false;
-  if (filters.status === "without-solution" && exercise.solution) return false;
+  if (filters.status === "with-solution" && !hasExerciseSolution(exercise)) return false;
+  if (filters.status === "without-solution" && hasExerciseSolution(exercise)) return false;
   if (filters.status === "with-image" && !(exercise.images || []).length) return false;
   if (filters.status === "without-image" && (exercise.images || []).length) return false;
   if (filters.status === "low-confidence" && exercise.confidence !== "Baixa") return false;
   return true;
+}
+
+function hasExerciseSolution(exercise) {
+  return Boolean((exercise.solutionFiles || []).length || String(exercise.solution || "").trim());
 }
 
 function renderHistory(subject) {
@@ -3317,7 +3307,7 @@ function renderExercisesByDocument(subject, documentKey = "") {
   if (!sortedGroups.length) {
     const empty = emptyState();
     empty.querySelector("h3").textContent = "Nenhuma pergunta corresponde aos filtros";
-    empty.querySelector("p").textContent = "Limpa ou altera os filtros para veres mais perguntas reais.";
+    empty.querySelector("p").textContent = "Limpa ou altera os filtros para veres mais perguntas dos exames.";
     els.historyList.append(empty);
     return;
   }
@@ -3346,12 +3336,14 @@ function renderExercisesByDocument(subject, documentKey = "") {
     [...exercises].sort((a, b) => (a.questionNumber || 999) - (b.questionNumber || 999)).forEach((exercise, index) => {
       const primaryTopic = exercise.topics?.[0] || "Tema por confirmar";
       const needsReview = exercise.extractionStatus === "needs_review" || exercise.confidence === "Baixa";
+      const questionNumber = exercise.questionNumber || index + 1;
       const card = document.createElement("article");
       card.className = "history-card";
+      card.dataset.exerciseCard = exercise.id;
       card.innerHTML = `
         <header>
           <div>
-            <strong>Pergunta ${index + 1}</strong>
+            <strong>Pergunta ${escapeHtml(questionNumber)}</strong>
             <div class="mini-label">${escapeHtml(primaryTopic)} · ${escapeHtml(exercise.type || "Pergunta")}${exercise.pageNumber ? ` · Pag. ${escapeHtml(exercise.pageNumber)}` : ""}</div>
             <div class="mini-label">${escapeHtml(exercise.academicYear)} · ${escapeHtml(exercise.semester)}. semestre · ${escapeHtml(exercise.month)} · ${escapeHtml(exercise.assessment)}</div>
           </div>
@@ -3366,27 +3358,7 @@ function renderExercisesByDocument(subject, documentKey = "") {
           </div>
         </div>` : `<p>${escapeHtml(cleanExerciseText(exercise.text))}</p>`}
         ${renderExerciseImages(exercise)}
-        <label class="solution-editor">
-          Resolucao do aluno
-          <textarea data-solution="${exercise.id}" rows="4" placeholder="Escreve aqui a resolucao completa desta pergunta...">${escapeHtml(exercise.solution || "")}</textarea>
-        </label>
-        <div class="answer-structure">
-          <strong>Estrutura de resposta sugerida</strong>
-          <p>${escapeHtml(exercise.answerStructure || buildAnswerStructureSuggestion(exercise, exercise.text))}</p>
-        </div>
-        <div class="solution-actions">
-          <button class="secondary-button" type="button" data-save-solution="${exercise.id}">Guardar resolucao</button>
-        </div>
-        <div class="prediction-meta">
-          <span class="pill">${escapeHtml(exercise.difficulty)}</span>
-          <span class="pill">Confianca: ${escapeHtml(exercise.confidence || "Media")}</span>
-          ${exercise.ocrConfidence !== null && exercise.ocrConfidence !== undefined ? `<span class="pill">OCR: ${Math.round(Number(exercise.ocrConfidence) * 100)}%</span>` : ""}
-          ${exercise.boundaryConfidence !== null && exercise.boundaryConfidence !== undefined ? `<span class="pill">Corte: ${Math.round(Number(exercise.boundaryConfidence) * 100)}%</span>` : ""}
-          ${exercise.topicConfidence !== null && exercise.topicConfidence !== undefined ? `<span class="pill">Tema: ${Math.round(Number(exercise.topicConfidence) * 100)}%</span>` : ""}
-          ${exercise.confidence === "Baixa" ? `<span class="pill warning-pill">${escapeHtml(exercise.analysisNotes || "Rever separacao")}</span>` : ""}
-          <span class="pill">${escapeHtml(primaryTopic)}</span>
-          <span class="pill">${escapeHtml((exercise.keywords || []).slice(0, 3).join(", ") || primaryTopic)}</span>
-        </div>
+        ${renderSolutionUploader(exercise)}
       `;
       list.append(card);
     });
@@ -3413,6 +3385,45 @@ function renderExerciseImages(exercise) {
   }).join("");
 
   return rendered ? `<div class="exercise-figures">${rendered}</div>` : "";
+}
+
+function renderSolutionUploader(exercise) {
+  const files = Array.isArray(exercise.solutionFiles) ? exercise.solutionFiles : [];
+  const renderedFiles = files.map((file, index) => renderSolutionFile(exercise, file, index)).join("");
+
+  return `
+    <section class="solution-uploader" aria-label="Resolucao do aluno">
+      <div class="solution-uploader-head">
+        <strong>Resolucao do aluno</strong>
+        <span>${files.length ? `${files.length} ficheiro${files.length > 1 ? "s" : ""}` : "Sem ficheiro"}</span>
+      </div>
+      <label class="file-import-control">
+        <input type="file" data-solution-file="${escapeHtml(exercise.id)}" accept="image/*,.pdf,application/pdf" multiple>
+        <span>Adicionar foto ou ficheiro da resolucao</span>
+      </label>
+      ${renderedFiles ? `<div class="solution-file-list">${renderedFiles}</div>` : ""}
+    </section>
+  `;
+}
+
+function renderSolutionFile(exercise, file, index) {
+  const src = file?.src || "";
+  const name = file?.name || `Resolucao ${index + 1}`;
+  const type = file?.type || "";
+  const isImage = type.startsWith("image/") || /^data:image\//i.test(src);
+  const preview = isImage
+    ? `<img src="${escapeHtml(src)}" alt="${escapeHtml(name)}" loading="lazy">`
+    : `<span class="file-chip">PDF/Ficheiro</span>`;
+
+  return `
+    <article class="solution-file">
+      ${preview}
+      <div>
+        <a href="${escapeHtml(src)}" target="_blank" rel="noopener">${escapeHtml(name)}</a>
+        <button class="text-button" type="button" data-remove-solution-file="${escapeHtml(exercise.id)}" data-file-index="${index}">Remover</button>
+      </div>
+    </article>
+  `;
 }
 
 function buildExampleTest(subject, mode = "frequent") {
@@ -3471,7 +3482,7 @@ function getDocumentKey(exercise) {
 }
 
 function getDocumentLabel(exercise) {
-  const source = exercise.sourceName ? exercise.sourceName.replace(/\.[^.]+$/, "") : "Perguntas coladas";
+  const source = exercise.sourceName ? exercise.sourceName.replace(/\.[^.]+$/, "") : "Perguntas importadas";
   const assessment = exercise.assessment || exercise.sourceType || "Documento";
   const year = exercise.academicYear || "";
   return `${assessment} ${year}`.trim() + (source ? ` · ${source}` : "");
@@ -3521,18 +3532,7 @@ function renderExercisesByTopic(subject) {
           </div>
         </header>
         <p>${escapeHtml(cleanExerciseText(exercise.text))}</p>
-        <label class="solution-editor">
-          Resolucao do exercicio
-          <textarea data-solution="${exercise.id}" rows="4" placeholder="Escreve aqui a resolucao completa deste exercicio...">${escapeHtml(exercise.solution || "")}</textarea>
-        </label>
-        <div class="solution-actions">
-          <button class="secondary-button" type="button" data-save-solution="${exercise.id}">Guardar resolucao</button>
-        </div>
-        <div class="prediction-meta">
-          <span class="pill">${escapeHtml(exercise.difficulty)}</span>
-          <span class="pill">${escapeHtml(exercise.sourceType || "Documento")}</span>
-          <span class="pill">${escapeHtml((exercise.keywords || []).slice(0, 3).join(", ") || topic)}</span>
-        </div>
+        ${renderSolutionUploader(exercise)}
       `;
       list.append(card);
     }
@@ -3571,6 +3571,27 @@ function activateTab(tabName) {
   });
 }
 
+function openQuestionById(exerciseId) {
+  const subject = getSubject();
+  const exercise = subject.exercises.find((item) => item.id === exerciseId);
+  if (!exercise) return;
+
+  activateTab("questions");
+  if (els.filters.topic) els.filters.topic.value = "";
+  if (els.filters.year) els.filters.year.value = "";
+  if (els.filters.assessment) els.filters.assessment.value = "";
+  if (els.filters.status) els.filters.status.value = "";
+  renderExercisesByDocument(subject, getDocumentKey(exercise));
+
+  const card = els.historyList.querySelector(`[data-exercise-card="${CSS.escape(exerciseId)}"]`);
+  const group = card?.closest(".document-group");
+  if (group) group.open = true;
+  if (card) {
+    card.classList.add("focus-card");
+    card.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+}
+
 function openSubjectModal() {
   renderSubjectManager();
   els.subjectManagerNote.textContent = "";
@@ -3583,16 +3604,54 @@ function closeSubjectModal() {
   els.subjectModal.setAttribute("aria-hidden", "true");
 }
 
-function saveExerciseSolution(exerciseId) {
+async function addSolutionFiles(exerciseId, fileList) {
   const subject = getSubject();
   const exercise = subject.exercises.find((item) => item.id === exerciseId);
-  const textarea = els.historyList.querySelector(`[data-solution="${CSS.escape(exerciseId)}"]`);
+  const files = [...(fileList || [])];
 
-  if (!exercise || !textarea) return;
+  if (!exercise || !files.length) return;
 
-  exercise.solution = textarea.value.trim();
+  const maxBytes = 8 * 1024 * 1024;
+  const accepted = files.filter((file) => file.type.startsWith("image/") || file.type === "application/pdf" || /\.pdf$/i.test(file.name));
+  const tooLarge = accepted.filter((file) => file.size > maxBytes);
+  const usable = accepted.filter((file) => file.size <= maxBytes);
+
+  if (!usable.length) {
+    els.analysisPreview.textContent = tooLarge.length
+      ? "Esse ficheiro e demasiado grande. Usa ficheiros ate 8 MB."
+      : "So podes anexar imagens ou PDF na resolucao.";
+    return;
+  }
+
+  const attachments = [];
+  for (const file of usable) {
+    attachments.push({
+      id: crypto.randomUUID(),
+      name: file.name || "resolucao",
+      type: file.type || (file.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "application/octet-stream"),
+      size: file.size,
+      src: await fileToDataUrl(file),
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  exercise.solutionFiles = [...(exercise.solutionFiles || []), ...attachments].slice(0, 8);
+  exercise.solution = exercise.solutionFiles.length ? "Resolucao anexada em ficheiro." : "";
   persist();
-  els.analysisPreview.textContent = "Resolucao guardada.";
+  renderExercisesByDocument(getSubject());
+  els.analysisPreview.textContent = `${attachments.length} ficheiro${attachments.length > 1 ? "s" : ""} da resolucao anexado${attachments.length > 1 ? "s" : ""}.`;
+}
+
+function removeSolutionFile(exerciseId, fileIndex) {
+  const subject = getSubject();
+  const exercise = subject.exercises.find((item) => item.id === exerciseId);
+  if (!exercise) return;
+
+  exercise.solutionFiles = (exercise.solutionFiles || []).filter((_, index) => index !== fileIndex);
+  if (!exercise.solutionFiles.length) exercise.solution = "";
+  persist();
+  renderExercisesByDocument(getSubject());
+  els.analysisPreview.textContent = "Ficheiro da resolucao removido.";
 }
 
 function saveQuestionCorrection(exerciseId) {
@@ -3642,6 +3701,7 @@ function splitQuestionAtCursor(exerciseId) {
     signature: getExerciseSignature(second),
     images: [],
     solution: "",
+    solutionFiles: [],
     questionNumber: (exercise.questionNumber || 0) + 0.1,
     confidence: "Media",
     boundaryConfidence: 0.72,
@@ -3669,6 +3729,8 @@ function mergeQuestionWithNext(exerciseId) {
 
   exercise.text = `${cleanExerciseText(exercise.text)}\n\n${cleanExerciseText(next.text)}`.trim();
   exercise.images = [...(exercise.images || []), ...(next.images || [])].slice(0, 4);
+  exercise.solutionFiles = [...(exercise.solutionFiles || []), ...(next.solutionFiles || [])].slice(0, 8);
+  exercise.solution = exercise.solutionFiles.length || exercise.solution || next.solution ? "Resolucao anexada em ficheiro." : "";
   exercise.signature = getExerciseSignature(exercise.text);
   exercise.confidence = "Media";
   exercise.boundaryConfidence = 0.74;
@@ -3754,7 +3816,7 @@ async function clearCurrentSubjectData() {
     persist();
     render();
     activateTab("import");
-    els.analysisPreview.textContent = "Dados de teste limpos. Podes importar ou colar novamente.";
+    els.analysisPreview.textContent = "Dados de teste limpos. Podes importar documentos novamente.";
   } catch (error) {
     els.analysisPreview.textContent = `Nao consegui limpar na Supabase: ${error.message}`;
   } finally {
@@ -3804,14 +3866,14 @@ els.manualUndoSelection?.addEventListener("click", undoManualSelection);
 els.manualClearSelection?.addEventListener("click", clearManualSelections);
 els.manualFinishSelection?.addEventListener("click", finishManualQuestionSelection);
 
-els.generateAdvice.addEventListener("click", generateSubjectAdvice);
+els.generateAdvice?.addEventListener("click", generateSubjectAdvice);
 
-els.saveAdvice.addEventListener("click", saveSubjectAdvice);
+els.saveAdvice?.addEventListener("click", saveSubjectAdvice);
 
 els.documentFiles.addEventListener("change", () => {
   const files = [...(els.documentFiles.files || [])];
   if (!files.length) {
-    els.documentFileStatus.textContent = "PDF, Word, TXT ou imagem. Depois a app tenta separar as perguntas reais automaticamente.";
+    els.documentFileStatus.textContent = "PDF, Word, TXT ou imagem. Depois a app tenta separar as perguntas dos exames automaticamente.";
     return;
   }
 
@@ -3843,19 +3905,7 @@ els.subjectManagerList.addEventListener("click", (event) => {
 
 els.exerciseForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  const formData = Object.fromEntries(new FormData(els.exerciseForm).entries());
-  const added = addExercisesFromForm(formData);
-
-  if (!added.length) {
-    els.analysisPreview.textContent = "Separa as perguntas por linhas em branco ou por numeracao.";
-    return;
-  }
-
-  const topics = [...new Set(added.flatMap((exercise) => exercise.topics))].join(", ");
-  els.analysisPreview.textContent = `${added.length} perguntas reais guardadas. Temas identificados: ${topics}.`;
-  els.exerciseForm.reset();
-  render();
-  activateTab("themes");
+  els.analysisPreview.textContent = "Escolhe um ficheiro e usa selecao manual ou importacao automatica.";
 });
 
 document.querySelector(".tabs").addEventListener("click", (event) => {
@@ -3865,7 +3915,7 @@ document.querySelector(".tabs").addEventListener("click", (event) => {
 });
 
 document.addEventListener("click", (event) => {
-  const target = event.target.closest("[data-go-tab], [data-filter-topic], [data-open-document]");
+  const target = event.target.closest("[data-go-tab], [data-filter-topic], [data-open-document], [data-open-question-id]");
   if (!target) return;
 
   if (target.dataset.goTab) {
@@ -3886,6 +3936,10 @@ document.addEventListener("click", (event) => {
     const firstGroup = els.historyList.querySelector(".document-group");
     if (firstGroup) firstGroup.open = true;
   }
+
+  if (target.dataset.openQuestionId) {
+    openQuestionById(target.dataset.openQuestionId);
+  }
 });
 
 Object.values(els.filters).forEach((select) => {
@@ -3893,11 +3947,6 @@ Object.values(els.filters).forEach((select) => {
 });
 
 els.historyList.addEventListener("click", (event) => {
-  const solutionId = event.target.dataset.saveSolution;
-  if (solutionId) {
-    saveExerciseSolution(solutionId);
-  }
-
   const questionId = event.target.dataset.saveQuestion;
   if (questionId) {
     saveQuestionCorrection(questionId);
@@ -3918,6 +3967,20 @@ els.historyList.addEventListener("click", (event) => {
   if (movePrevId || moveNextId) {
     moveExerciseImage(movePrevId || moveNextId, Number(event.target.dataset.imageIndex || 0), movePrevId ? -1 : 1);
   }
+
+  const removeSolutionId = event.target.dataset.removeSolutionFile;
+  if (removeSolutionId) {
+    removeSolutionFile(removeSolutionId, Number(event.target.dataset.fileIndex || 0));
+  }
+});
+
+els.historyList.addEventListener("change", (event) => {
+  const input = event.target.closest("[data-solution-file]");
+  if (!input) return;
+
+  addSolutionFiles(input.dataset.solutionFile, input.files).finally(() => {
+    input.value = "";
+  });
 });
 
 els.seedButton.addEventListener("click", addSampleData);
