@@ -2,6 +2,7 @@ const STORAGE_KEY = "exampulse.v1";
 const ANALYZER_VERSION = 2;
 const SUPABASE_URL = "https://woostdadplbikfwfiqjd.supabase.co";
 const SUPABASE_KEY = "sb_publishable_7-rfzQ6TU8nYlADkHEkS9Q_zUHPAOKD";
+const SUPABASE_IMAGE_BUCKET = "exercise-images";
 const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_KEY);
 let cloudReady = false;
 let syncTimer = null;
@@ -138,6 +139,9 @@ const els = {
   historyList: document.querySelector("#history-list"),
   seedButton: document.querySelector("#seed-button"),
   clearSubject: document.querySelector("#clear-subject"),
+  generateFrequentTest: document.querySelector("#generate-frequent-test"),
+  generateOverdueTest: document.querySelector("#generate-overdue-test"),
+  generatedTestOutput: document.querySelector("#generated-test-output"),
   metrics: {
     exercises: document.querySelector("#metric-exercises"),
     topics: document.querySelector("#metric-topics"),
@@ -204,6 +208,7 @@ function normalizeState(nextState) {
           signature: exercise.signature || getExerciseSignature(exercise.text || ""),
           sourceType: exercise.sourceType || exercise.source_type || "Manual",
           solution: exercise.solution || "",
+          images: Array.isArray(exercise.images) ? exercise.images : [],
         }))
       : [],
   }));
@@ -283,7 +288,7 @@ function splitExamQuestions(rawText) {
   }
 
   return preparedText
-    .split(/\n\s*\n/)
+    .split(/\n\s*\n\s*\n+|\n\s*[-_=]{4,}\s*\n|\n\s*\*{4,}\s*\n/)
     .map(cleanQuestionCandidate)
     .filter(isLikelyExercise);
 }
@@ -329,7 +334,8 @@ function cleanQuestionCandidate(value) {
     .replace(/^\s*pergunta\s*/i, "")
     .replace(/^\s*(?:quest(?:ao|ão)|exerc(?:icio|ício))\s*/i, "")
     .replace(/^\s*\d+(?:[.,]\d+)*\s*[a-z]?\s*[:.)\-\u2013\u2014?]\s*/i, "")
-    .replace(/\s+/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
   return stripBoilerplatePrefix(cleaned);
 }
@@ -637,7 +643,9 @@ function inferAssessmentFromHeader(header) {
 
 function addExercisesFromForm(formData) {
   const subject = getSubject();
-  const pieces = splitExamQuestions(formData.exerciseText);
+  const pieces = Array.isArray(formData.preparedQuestions) && formData.preparedQuestions.length
+    ? formData.preparedQuestions
+    : splitExamQuestions(formData.exerciseText).map((text) => ({ text, images: [] }));
   const now = new Date().toISOString();
   const sourceName = formData.sourceName || getManualSourceName(now);
   const existingSignatures = new Set(subject.exercises.map((exercise) => getExerciseSignature(exercise.text)));
@@ -645,7 +653,8 @@ function addExercisesFromForm(formData) {
   const newExercises = [];
   let skippedDuplicates = 0;
 
-  for (const text of pieces) {
+  for (const piece of pieces) {
+    const text = cleanQuestionCandidate(piece.text || "");
     const signature = getExerciseSignature(text);
     if (!signature || existingSignatures.has(signature)) {
       skippedDuplicates += 1;
@@ -666,6 +675,7 @@ function addExercisesFromForm(formData) {
       sourceType: formData.sourceType || "Manual",
       sourceName,
       solution: "",
+      images: Array.isArray(piece.images) ? piece.images.slice(0, 4) : [],
       createdAt: now,
       ...analysis,
     });
@@ -723,7 +733,8 @@ async function importDocumentFiles() {
 
     for (const file of files) {
       try {
-        const text = await extractTextFromFile(file);
+        const payload = await extractDocumentPayload(file);
+        const text = payload.text || "";
         const documentInfo = detectDocumentType(text, file.name);
         const academicYear = shouldInferAcademicYear
           ? inferAcademicYear(text, file.name) || metadata.academicYear
@@ -734,6 +745,7 @@ async function importDocumentFiles() {
           assessment: documentInfo.assessment || metadata.assessment,
           sourceType: documentInfo.sourceType,
           exerciseText: text,
+          preparedQuestions: payload.questions || null,
           sourceName: file.name,
         });
         totalExercises += added.length;
@@ -871,6 +883,7 @@ async function loadFromSupabase() {
           sourceName: exercise.source_name || "",
           sourceType: exercise.source_type || "Documento",
           solution: exercise.solution || "",
+          images: Array.isArray(exercise.images) ? exercise.images : [],
           createdAt: exercise.created_at,
         })),
     })),
@@ -895,25 +908,30 @@ async function syncToSupabase() {
     }))
   );
 
-  const exercises = state.subjects.flatMap((subject) =>
-    subject.exercises.map((exercise) => ({
-      id: exercise.id,
-      subject_id: subject.id,
-      topic_names: exercise.topics || [],
-      text: exercise.text,
-      academic_year: exercise.academicYear,
-      year_start: exercise.yearStart,
-      semester: exercise.semester,
-      month: exercise.month,
-      assessment: exercise.assessment,
-      difficulty: exercise.difficulty,
-      exercise_type: exercise.type,
-      solution: exercise.solution || "",
-      keywords: exercise.keywords || [],
-      source_name: exercise.sourceName || "",
-      source_type: exercise.sourceType || "Documento",
-      created_at: exercise.createdAt,
-    }))
+  const exercises = (
+    await Promise.all(
+      state.subjects.flatMap((subject) =>
+        subject.exercises.map(async (exercise) => ({
+          id: exercise.id,
+          subject_id: subject.id,
+          topic_names: exercise.topics || [],
+          text: exercise.text,
+          academic_year: exercise.academicYear,
+          year_start: exercise.yearStart,
+          semester: exercise.semester,
+          month: exercise.month,
+          assessment: exercise.assessment,
+          difficulty: exercise.difficulty,
+          exercise_type: exercise.type,
+          solution: exercise.solution || "",
+          keywords: exercise.keywords || [],
+          source_name: exercise.sourceName || "",
+          source_type: exercise.sourceType || "Documento",
+          images: await persistExerciseImages(subject.id, exercise),
+          created_at: exercise.createdAt,
+        }))
+      )
+    )
   );
 
   const { error: subjectError } = await supabaseClient.from("subjects").upsert(subjects);
@@ -928,6 +946,68 @@ async function syncToSupabase() {
     const { error: exerciseError } = await supabaseClient.from("exercises").upsert(exercises);
     if (exerciseError) throw exerciseError;
   }
+}
+
+async function persistExerciseImages(subjectId, exercise) {
+  const images = Array.isArray(exercise.images) ? exercise.images : [];
+  if (!images.length) return [];
+
+  const stored = [];
+
+  for (let index = 0; index < images.length; index += 1) {
+    const image = images[index];
+    const src = String(image?.src || "");
+    if (!src) continue;
+
+    if (!isDataUrl(src)) {
+      stored.push({
+        src,
+        caption: image.caption || "Figura da pergunta",
+      });
+      continue;
+    }
+
+    try {
+      const uploaded = await uploadImageDataUrl(subjectId, exercise.id, src, index);
+      stored.push({
+        src: uploaded,
+        caption: image.caption || "Figura da pergunta",
+      });
+    } catch {
+      // Keep local data URL as fallback when upload fails.
+      stored.push({
+        src,
+        caption: image.caption || "Figura da pergunta",
+      });
+    }
+  }
+
+  exercise.images = stored;
+  return stored;
+}
+
+function isDataUrl(value) {
+  return /^data:image\/[a-z0-9.+-]+;base64,/i.test(value);
+}
+
+async function uploadImageDataUrl(subjectId, exerciseId, dataUrl, index) {
+  const blob = await (await fetch(dataUrl)).blob();
+  const extension = blob.type.includes("jpeg") ? "jpg" : blob.type.includes("webp") ? "webp" : "png";
+  const path = `${subjectId}/${exerciseId}/${Date.now()}-${index}.${extension}`;
+
+  const { error: uploadError } = await supabaseClient.storage
+    .from(SUPABASE_IMAGE_BUCKET)
+    .upload(path, blob, {
+      upsert: true,
+      contentType: blob.type || `image/${extension}`,
+      cacheControl: "3600",
+    });
+
+  if (uploadError) throw uploadError;
+
+  const { data } = supabaseClient.storage.from(SUPABASE_IMAGE_BUCKET).getPublicUrl(path);
+  if (!data?.publicUrl) throw new Error("URL publica de imagem indisponivel");
+  return data.publicUrl;
 }
 
 async function extractTextFromFile(file) {
@@ -956,6 +1036,55 @@ async function extractTextFromFile(file) {
   }
 
   throw new Error("Formato nao suportado");
+}
+
+async function extractDocumentPayload(file) {
+  const name = file.name.toLowerCase();
+
+  if (file.type.startsWith("text/") || name.endsWith(".txt") || name.endsWith(".md")) {
+    return { text: await file.text(), questions: [] };
+  }
+
+  if (file.type === "application/pdf" || name.endsWith(".pdf")) {
+    return extractPdfPayload(await file.arrayBuffer());
+  }
+
+  if (
+    file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    name.endsWith(".docx")
+  ) {
+    if (!window.mammoth) throw new Error("leitor de Word nao carregou");
+    return { text: await extractDocxText(await file.arrayBuffer()), questions: [] };
+  }
+
+  if (file.type.startsWith("image/") || /\.(png|jpe?g|webp)$/i.test(name)) {
+    return extractImagePayload(file);
+  }
+
+  throw new Error("Formato nao suportado");
+}
+
+async function extractPdfPayload(arrayBuffer) {
+  if (window.pdfjsLib) {
+    try {
+      const pdf = await window.pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+      const text = await extractPdfTextWithPdfJs(pdf);
+      const questions = await extractPdfQuestionsWithOcr(pdf);
+      if (questions.length) {
+        const joinedText = text.length > 20 ? text : questions.map((q) => q.text).join("\n\n");
+        return { text: joinedText, questions };
+      }
+      if (text.length > 40) return { text, questions: [] };
+      const ocrText = await extractPdfImageTextWithOcr(pdf);
+      if (ocrText.length > 40) return { text: ocrText, questions: [] };
+    } catch {
+      // Fall through.
+    }
+  }
+
+  const fallbackText = await extractSimplePdfText(arrayBuffer);
+  if (fallbackText.trim().length > 40) return { text: fallbackText, questions: [] };
+  throw new Error("PDF sem texto selecionavel ou digitalizado por imagem");
 }
 
 async function extractPdfText(arrayBuffer) {
@@ -1026,6 +1155,144 @@ async function extractImageText(file) {
   }
 
   return text;
+}
+
+async function extractImagePayload(file) {
+  if (!window.Tesseract) throw new Error("OCR de imagens nao carregou");
+  showImportMessage(`A analisar imagem ${file.name} e associar figuras por pergunta...`);
+  const imageUrl = await fileToDataUrl(file);
+  const result = await window.Tesseract.recognize(file, "por+eng");
+  const questions = await buildQuestionsFromOcrResult(result, imageUrl);
+  if (questions.length) {
+    return { text: questions.map((q) => q.text).join("\n\n"), questions };
+  }
+  const text = (result.data?.text || "").trim();
+  if (text.length < 20) throw new Error("nao encontrei texto suficiente na imagem");
+  return { text, questions: [] };
+}
+
+async function extractPdfQuestionsWithOcr(pdf) {
+  if (!window.Tesseract) return [];
+  const collected = [];
+
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    const page = await pdf.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 1.6 });
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    canvas.width = Math.floor(viewport.width);
+    canvas.height = Math.floor(viewport.height);
+    await page.render({ canvasContext: context, viewport }).promise;
+    const imageUrl = canvas.toDataURL("image/png");
+    const ocr = await window.Tesseract.recognize(imageUrl, "por+eng");
+    const pageQuestions = (await buildQuestionsFromOcrResult(ocr, imageUrl))
+      .map((question) => ({ ...question, text: `[Pag. ${pageNumber}] ${question.text}` }));
+    collected.push(...pageQuestions);
+  }
+
+  return collected.filter((question) => question.text.length > 20);
+}
+
+async function buildQuestionsFromOcrResult(result, imageUrl) {
+  const lines = (result.data?.lines || [])
+    .map((line) => ({
+      text: String(line.text || "").trim(),
+      y0: line.bbox?.y0 ?? 0,
+      y1: line.bbox?.y1 ?? 0,
+    }))
+    .filter((line) => line.text.length >= 2)
+    .sort((a, b) => a.y0 - b.y0);
+
+  if (!lines.length) return [];
+  const imageHeight = result.data?.imageSize?.height || null;
+  const blocks = splitOcrLinesIntoQuestionBlocks(lines);
+  const questions = [];
+  for (const block of blocks) {
+    const image = await createQuestionImage(imageUrl, block.startY, block.endY, imageHeight);
+    questions.push({
+      text: cleanQuestionCandidate(block.lines.map((line) => line.text).join("\n")),
+      images: image ? [image] : [],
+    });
+  }
+  return questions.filter((question) => isLikelyExercise(question.text));
+}
+
+function splitOcrLinesIntoQuestionBlocks(lines) {
+  const gaps = [];
+  for (let index = 1; index < lines.length; index += 1) {
+    gaps.push(Math.max(0, lines[index].y0 - lines[index - 1].y1));
+  }
+  const medianGap = gaps.length ? gaps.sort((a, b) => a - b)[Math.floor(gaps.length / 2)] : 0;
+  const largeGap = Math.max(18, medianGap * 2.3);
+
+  const blocks = [];
+  let current = [lines[0]];
+
+  for (let index = 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    const prev = lines[index - 1];
+    const gap = Math.max(0, line.y0 - prev.y1);
+    const startsNewQuestion = isLineQuestionStart(line.text);
+    const bigVisualBreak = gap >= largeGap && current.map((item) => item.text).join(" ").length > 55;
+
+    if (startsNewQuestion || bigVisualBreak) {
+      blocks.push(current);
+      current = [line];
+    } else {
+      current.push(line);
+    }
+  }
+  if (current.length) blocks.push(current);
+
+  return blocks.map((group) => ({
+    lines: group,
+    startY: Math.max(0, Math.min(...group.map((line) => line.y0)) - 10),
+    endY: Math.max(...group.map((line) => line.y1)) + 14,
+  }));
+}
+
+function isLineQuestionStart(text) {
+  const line = normalizeText(String(text).trim());
+  return /^(quest(?:ao|ão)|exerc(?:icio|ício)|pergunta)\s*\d+/.test(line) ||
+    /^\d{1,2}(?:[.,]\d+){0,2}\s*[:.)-]/.test(line) ||
+    /^\d{1,2}\s+[a-z]\s*[:.)-]/.test(line);
+}
+
+async function createQuestionImage(imageUrl, startY, endY, sourceImageHeight) {
+  try {
+    const image = await loadImage(imageUrl);
+    if (!sourceImageHeight) return { src: imageUrl, caption: "Figura da pergunta" };
+    const ratio = image.naturalHeight / Math.max(1, sourceImageHeight);
+    const y0 = Math.max(0, Math.floor(startY * ratio));
+    const y1 = Math.min(image.naturalHeight, Math.max(y0 + 40, Math.floor(endY * ratio)));
+    const height = Math.max(40, y1 - y0);
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    canvas.width = image.naturalWidth;
+    canvas.height = height;
+    context.drawImage(image, 0, y0, image.naturalWidth, height, 0, 0, image.naturalWidth, height);
+    return { src: canvas.toDataURL("image/png"), caption: "Figura da pergunta" };
+  } catch {
+    return { src: imageUrl, caption: "Figura da pergunta" };
+  }
+}
+
+async function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("falha ao ler imagem"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("falha ao abrir imagem"));
+    image.src = src;
+  });
 }
 
 async function extractSimplePdfText(arrayBuffer) {
@@ -1527,6 +1794,7 @@ function renderExercisesByDocument(subject) {
           </div>
         </header>
         <p>${escapeHtml(cleanExerciseText(exercise.text))}</p>
+        ${renderExerciseImages(exercise)}
         <label class="solution-editor">
           Resolucao do exercicio
           <textarea data-solution="${exercise.id}" rows="4" placeholder="Escreve aqui a resolucao completa deste exercicio...">${escapeHtml(exercise.solution || "")}</textarea>
@@ -1545,6 +1813,65 @@ function renderExercisesByDocument(subject) {
 
     els.historyList.append(group);
   }
+}
+
+function renderExerciseImages(exercise) {
+  const images = Array.isArray(exercise.images) ? exercise.images : [];
+  if (!images.length) return "";
+
+  const rendered = images.slice(0, 4).map((image, index) => {
+    const src = image?.src || "";
+    if (!src) return "";
+    return `<figure class="exercise-figure"><img src="${escapeHtml(src)}" alt="Figura da pergunta ${index + 1}" loading="lazy"><figcaption>${escapeHtml(image.caption || "Figura")}</figcaption></figure>`;
+  }).join("");
+
+  return rendered ? `<div class="exercise-figures">${rendered}</div>` : "";
+}
+
+function buildExampleTest(subject, mode = "frequent") {
+  const predictions = calculatePredictions(subject);
+  if (!predictions.length) {
+    return "Sem dados suficientes para gerar teste. Importa mais exames primeiro.";
+  }
+
+  const newestYear = Math.max(...subject.exercises.map((exercise) => exercise.yearStart || 0));
+  const ranked = mode === "overdue"
+    ? [...predictions].sort((a, b) => {
+      const ageA = Math.max(0, newestYear - (a.lastSeen || newestYear));
+      const ageB = Math.max(0, newestYear - (b.lastSeen || newestYear));
+      return ageB - ageA || b.score - a.score;
+    })
+    : [...predictions].sort((a, b) => b.score - a.score);
+
+  const selected = ranked.slice(0, 6);
+  const title = mode === "overdue"
+    ? `Teste exemplo - Materias mais atrasadas (${subject.name})`
+    : `Teste exemplo - Materias mais frequentes (${subject.name})`;
+
+  const intro = mode === "overdue"
+    ? "Selecao focada em temas que nao aparecem ha mais tempo no historico."
+    : "Selecao focada em temas com maior frequencia/probabilidade no historico.";
+
+  const questions = selected.map((item, index) => {
+    const age = Math.max(0, newestYear - (item.lastSeen || newestYear));
+    const evidence = item.examples?.[0]?.text ? clip(cleanExerciseText(item.examples[0].text), 220) : item.likelyExercise.prompt;
+    const reason = mode === "overdue"
+      ? `Atraso: ${age} ano(s) sem aparecer.`
+      : `Probabilidade estimada: ${item.score}%.`;
+    return `${index + 1}. ${item.likelyExercise.title}\nEnunciado sugerido: ${item.likelyExercise.prompt}\nJustificacao: ${reason} Evidencia: ${evidence}`;
+  });
+
+  return [title, intro, "", ...questions].join("\n\n");
+}
+
+function generateExampleTest(mode) {
+  const subject = getSubject();
+  const output = buildExampleTest(subject, mode);
+  if (els.generatedTestOutput) {
+    els.generatedTestOutput.value = output;
+  }
+  els.analysisPreview.textContent = "Teste exemplo gerado com base no historico.";
+  activateTab("predictions");
 }
 
 function getDocumentKey(exercise) {
@@ -1825,6 +2152,8 @@ els.historyList.addEventListener("click", (event) => {
 els.seedButton.addEventListener("click", addSampleData);
 
 els.clearSubject.addEventListener("click", clearCurrentSubjectData);
+els.generateFrequentTest?.addEventListener("click", () => generateExampleTest("frequent"));
+els.generateOverdueTest?.addEventListener("click", () => generateExampleTest("overdue"));
 
 render();
 initSupabaseSync();
