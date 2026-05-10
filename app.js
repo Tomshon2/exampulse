@@ -137,9 +137,6 @@ const els = {
   exerciseSuggestions: document.querySelector("#exercise-suggestions"),
   historyList: document.querySelector("#history-list"),
   seedButton: document.querySelector("#seed-button"),
-  clearSubject: document.querySelector("#clear-subject"),
-  exportButton: document.querySelector("#export-button"),
-  importFile: document.querySelector("#import-file"),
   metrics: {
     exercises: document.querySelector("#metric-exercises"),
     topics: document.querySelector("#metric-topics"),
@@ -204,6 +201,7 @@ function normalizeState(nextState) {
           ...exercise,
           id: isUuid(exercise.id) ? exercise.id : crypto.randomUUID(),
           signature: exercise.signature || getExerciseSignature(exercise.text || ""),
+          sourceType: exercise.sourceType || exercise.source_type || "Manual",
           solution: exercise.solution || "",
         }))
       : [],
@@ -292,6 +290,8 @@ function prepareExerciseText(rawText) {
   return rawText
     .replace(/\r/g, "")
     .replace(/[ \t]+/g, " ")
+    .replace(/\s+(\d{1,2}\s*[.)]\s+(?=[A-Za-z]))/g, "\n\n$1")
+    .replace(/\s+(\d+\s*[.,]?\s*[a-z]\s*[\).:-]\s+)/gi, "\n\n$1")
     .replace(/\s+((?:quest(?:ao|ão)|exerc(?:icio|ício))\s*\d+(?:[.,]\d+)*(?:\s*[a-z])?\s*[:.)-])/gi, "\n\n$1 ")
     .replace(/\s+(\d+(?:[.,]\d+){1,3}\s*[:.)-]\s+)/g, "\n\n$1")
     .replace(/\s+(\d+\s*[a-z]\s*[:.)-]\s+)/gi, "\n\n$1")
@@ -308,7 +308,7 @@ function findQuestionMarkers(text) {
   while (match) {
     const index = match.index + match[0].indexOf(match[1]);
     const lookahead = text.slice(index, index + 360);
-    if (hasQuestionSignal(lookahead)) {
+    if (hasQuestionSignal(lookahead) && !looksLikeDocumentHeaderMarker(lookahead)) {
       markers.push({ index, label: match[1] });
     }
     match = markerPattern.exec(text);
@@ -318,10 +318,11 @@ function findQuestionMarkers(text) {
 }
 
 function cleanQuestionCandidate(value) {
-  return value
+  const cleaned = value
     .replace(/^\s*(?:quest(?:ao|ão)|exerc(?:icio|ício))\s*/i, "")
     .replace(/\s+/g, " ")
     .trim();
+  return stripBoilerplatePrefix(cleaned);
 }
 
 function hasQuestionSignal(text) {
@@ -329,9 +330,57 @@ function hasQuestionSignal(text) {
   return /(calcule|determine|desenhe|projete|implemente|explique|indique|justifique|represente|construa|considere|dimensione|simplifique|obtenha|apresente|complete|preencha|analise|deduza|mostre)/.test(normalized) || /\?/.test(text);
 }
 
+function looksLikeDocumentHeaderMarker(text) {
+  const normalized = normalizeText(text);
+  const signalIndex = normalized.search(/(calcule|determine|desenhe|projete|implemente|explique|indique|justifique|represente|construa|considere|dimensione|simplifique|obtenha|apresente|complete|preencha|analise|deduza|mostre|\?)/);
+  if (signalIndex < 0 || signalIndex > 240) return false;
+
+  const prefix = normalized.slice(0, signalIndex);
+  const headerHits = [
+    "escola",
+    "instituto",
+    "curso",
+    "unidade curricular",
+    "ano lectivo",
+    "ano letivo",
+    "enunciado de avaliacao",
+    "modelo",
+    "pagina",
+    "data",
+    "duracao",
+    "cotacao",
+    "formulario",
+  ].filter((word) => prefix.includes(word)).length;
+
+  return headerHits >= 2;
+}
+
+function stripBoilerplatePrefix(text) {
+  const normalized = normalizeText(text);
+  const headerHits = [
+    "formulario",
+    "cotacao",
+    "duracao",
+    "enunciado de avaliacao",
+    "modelo",
+    "pagina",
+    "curso",
+    "unidade curricular",
+  ].filter((word) => normalized.slice(0, 260).includes(word)).length;
+
+  if (headerHits < 2) return text;
+
+  const signal = text.search(/\b(Calcule|calcule|Determine|determine|Desenhe|desenhe|Projete|projete|Implemente|implemente|Explique|explique|Indique|indique|Justifique|justifique|Represente|represente|Construa|construa|Considere|considere|Simplifique|simplifique|Obtenha|obtenha|Analise|analise)\b/);
+  if (signal > 20 && signal < 420) {
+    return text.slice(signal).trim();
+  }
+
+  return text;
+}
+
 function isLikelyExercise(text) {
   const normalized = normalizeText(text);
-  if (text.length < 35) return false;
+  if (text.length < 25) return false;
   if (!hasQuestionSignal(text)) return false;
   if (isBoilerplateText(normalized)) return false;
   return true;
@@ -482,6 +531,67 @@ function parseYearStart(academicYear) {
   return match ? Number(match[0]) : new Date().getFullYear();
 }
 
+function detectDocumentType(text, fileName = "") {
+  const header = normalizeText(`${fileName}\n${String(text).slice(0, 1800)}`);
+  const hits = (words) => words.filter((word) => header.includes(word)).length;
+
+  const examHits = hits([
+    "enunciado de avaliacao",
+    "frequencia",
+    "freq",
+    "exame",
+    "teste",
+    "recurso",
+    "duracao",
+    "cotacao",
+    "classificacao",
+    "modelo p",
+    "ano lectivo",
+    "ano letivo",
+  ]);
+  const workbookHits = hits([
+    "caderno de exercicios",
+    "ficha de exercicios",
+    "lista de exercicios",
+    "problemas propostos",
+    "exercicios resolvidos",
+    "folha de exercicios",
+  ]);
+  const notesHits = hits([
+    "apontamentos",
+    "sebenta",
+    "resumo",
+    "slides",
+    "capitulo",
+    "teoria",
+  ]);
+
+  if (examHits >= 2 || /\b(exame|frequencia|freq|teste|recurso)\b/.test(header)) {
+    return {
+      sourceType: "Teste/Exame",
+      assessment: inferAssessmentFromHeader(header),
+    };
+  }
+
+  if (workbookHits >= 1) {
+    return { sourceType: "Caderno de exercicios", assessment: "" };
+  }
+
+  if (notesHits >= 1) {
+    return { sourceType: "Apontamentos/Teoria", assessment: "" };
+  }
+
+  return { sourceType: "Documento", assessment: "" };
+}
+
+function inferAssessmentFromHeader(header) {
+  if (header.includes("recurso")) return "Recurso";
+  if (header.includes("frequencia") || /\bfreq/.test(header)) return "Frequencia";
+  if (header.includes("teste")) return "Teste";
+  if (header.includes("exame")) return "Exame normal";
+  return "";
+}
+
 function addExercisesFromForm(formData) {
   const subject = getSubject();
   const pieces = splitExamQuestions(formData.exerciseText);
@@ -509,7 +619,9 @@ function addExercisesFromForm(formData) {
       semester: formData.semester,
       month: formData.month,
       assessment: formData.assessment,
+      sourceType: formData.sourceType || "Manual",
       sourceName: formData.sourceName || "",
+      solution: "",
       createdAt: now,
       ...analysis,
     });
@@ -550,14 +662,23 @@ async function importDocumentFiles() {
     let totalExercises = 0;
     let totalSkipped = 0;
     const topicNames = new Set();
+    const sourceTypes = new Set();
     const failedFiles = [];
 
     for (const file of files) {
       try {
         const text = await extractTextFromFile(file);
-        const added = addExercisesFromForm({ ...metadata, exerciseText: text, sourceName: file.name });
+        const documentInfo = detectDocumentType(text, file.name);
+        const added = addExercisesFromForm({
+          ...metadata,
+          assessment: documentInfo.assessment || metadata.assessment,
+          sourceType: documentInfo.sourceType,
+          exerciseText: text,
+          sourceName: file.name,
+        });
         totalExercises += added.length;
         totalSkipped += added.skippedDuplicates || 0;
+        sourceTypes.add(documentInfo.sourceType);
         added.flatMap((exercise) => exercise.topics).forEach((topic) => topicNames.add(topic));
       } catch (error) {
         failedFiles.push(`${file.name} (${error.message})`);
@@ -579,7 +700,8 @@ async function importDocumentFiles() {
 
     const failedNote = failedFiles.length ? ` Nao lidos: ${failedFiles.join(", ")}.` : "";
     const duplicateNote = totalSkipped ? ` Ignorei ${totalSkipped} duplicados.` : "";
-    showImportMessage(`${totalExercises} exercicios importados. Materias detetadas/criadas: ${[...topicNames].join(", ")}.${duplicateNote}${failedNote}`);
+    const sourceNote = sourceTypes.size ? ` Tipo detetado: ${[...sourceTypes].join(", ")}.` : "";
+    showImportMessage(`${totalExercises} exercicios importados.${sourceNote} Materias detetadas/criadas: ${[...topicNames].join(", ")}.${duplicateNote}${failedNote}`);
   } finally {
     els.documentImportButton.disabled = false;
     els.documentImportButton.textContent = "Importar e analisar";
@@ -687,6 +809,7 @@ async function loadFromSupabase() {
           keywords: exercise.keywords || [],
           signature: getExerciseSignature(exercise.text),
           sourceName: exercise.source_name || "",
+          sourceType: exercise.source_type || "Documento",
           solution: exercise.solution || "",
           createdAt: exercise.created_at,
         })),
@@ -728,6 +851,7 @@ async function syncToSupabase() {
       solution: exercise.solution || "",
       keywords: exercise.keywords || [],
       source_name: exercise.sourceName || "",
+      source_type: exercise.sourceType || "Documento",
       created_at: exercise.createdAt,
     }))
   );
@@ -979,20 +1103,23 @@ function calculatePredictions(subject) {
   const newestYear = Math.max(...exercises.map((exercise) => exercise.yearStart || 0));
   const oldestYear = Math.min(...exercises.map((exercise) => exercise.yearStart || newestYear));
   const yearWindow = Math.max(1, newestYear - oldestYear + 1);
-  const total = exercises.length;
+  const totalWeight = Math.max(1, exercises.reduce((sum, exercise) => sum + getSourceWeight(exercise), 0));
   const byTopic = new Map();
 
   for (const exercise of exercises) {
+    const sourceWeight = getSourceWeight(exercise);
     for (const topic of exercise.topics) {
       if (!byTopic.has(topic)) {
         byTopic.set(topic, {
           topic,
           count: 0,
+          weightedCount: 0,
           years: new Set(),
           recentCount: 0,
           lastSeen: 0,
           examples: [],
           assessments: new Set(),
+          sourceTypes: new Set(),
           keywords: new Map(),
           types: new Map(),
         });
@@ -1000,8 +1127,10 @@ function calculatePredictions(subject) {
 
       const bucket = byTopic.get(topic);
       bucket.count += 1;
+      bucket.weightedCount += sourceWeight;
       bucket.years.add(exercise.yearStart);
       bucket.assessments.add(exercise.assessment);
+      bucket.sourceTypes.add(exercise.sourceType || "Documento");
       bucket.lastSeen = Math.max(bucket.lastSeen, exercise.yearStart || 0);
       if ((exercise.yearStart || 0) >= newestYear - 1) bucket.recentCount += 1;
       bucket.examples.push(exercise);
@@ -1016,12 +1145,12 @@ function calculatePredictions(subject) {
 
   return [...byTopic.values()]
     .map((item) => {
-      const frequency = item.count / total;
+      const frequency = item.weightedCount / totalWeight;
       const consistency = item.years.size / yearWindow;
       const recency = item.lastSeen ? 1 / (1 + Math.max(0, newestYear - item.lastSeen)) : 0;
-      const evidence = Math.min(1, item.count / 4);
+      const evidence = Math.min(1, item.weightedCount / 4);
       let score = Math.round(18 + evidence * 34 + frequency * 20 + consistency * 16 + recency * 12);
-      if (total < 5) score = Math.min(score, 72);
+      if (exercises.length < 5) score = Math.min(score, 72);
       if (item.count === 1) score = Math.min(score, 58);
       if (item.years.size === 1) score = Math.min(score, 68);
       const sortedExamples = item.examples.sort((a, b) => (b.yearStart || 0) - (a.yearStart || 0));
@@ -1038,6 +1167,7 @@ function calculatePredictions(subject) {
         consistency: Math.round(consistency * 100),
         recentCount: item.recentCount,
         assessments: [...item.assessments],
+        sourceTypes: [...item.sourceTypes],
         topKeywords,
         topType,
         likelyExercise: buildLikelyExercise(item.topic, topType, topKeywords, sortedExamples),
@@ -1058,6 +1188,14 @@ function buildLikelyExercise(topic, type, keywords, examples) {
     prompt: `Provavel pergunta: ${verbText} um exercicio sobre ${keywordText}.`,
     evidence: clip(cleanExerciseText(base), 240),
   };
+}
+
+function getSourceWeight(exercise) {
+  const source = normalizeText(`${exercise.sourceType || ""} ${exercise.assessment || ""}`);
+  if (/(teste|exame|frequencia|recurso|avaliacao)/.test(source)) return 1;
+  if (/(caderno|ficha|lista|problemas propostos)/.test(source)) return 0.55;
+  if (/(apontamentos|teoria|slides|sebenta|resumo)/.test(source)) return 0.25;
+  return 0.75;
 }
 
 function collectFrequentVerbs(examples) {
@@ -1120,7 +1258,6 @@ function renderSubjectManager() {
         <span>${subject.exercises.length} exercicios guardados</span>
       </div>
       <button class="secondary-button" type="button" data-open-subject="${subject.id}">Abrir</button>
-      <button class="danger-button" type="button" data-remove-subject="${subject.id}">Anular</button>
     `;
     els.subjectManagerList.append(row);
   }
@@ -1212,6 +1349,7 @@ function renderPredictions(predictions) {
         <span class="pill">${prediction.years.size} anos</span>
         <span class="pill">${prediction.recentCount} recentes</span>
         <span class="pill">${escapeHtml(prediction.assessments.slice(0, 2).join(", "))}</span>
+        <span class="pill">${escapeHtml(prediction.sourceTypes.slice(0, 2).join(", "))}</span>
       </div>
       <p class="prediction-reason">Tokens fortes: ${escapeHtml(prediction.topKeywords.slice(0, 5).join(", ") || "ainda poucos dados")}</p>
     `;
@@ -1233,6 +1371,7 @@ function renderPredictions(predictions) {
       <div class="prediction-meta">
         <span class="pill">${prediction.count} exemplos</span>
         <span class="pill">${prediction.years.size} anos</span>
+        <span class="pill">${escapeHtml(prediction.sourceTypes.slice(0, 2).join(", "))}</span>
         <span class="pill">${escapeHtml(prediction.topKeywords.slice(0, 2).join(", ") || prediction.topic)}</span>
       </div>
     `;
@@ -1257,7 +1396,6 @@ function renderHistory(subject) {
           <strong>${escapeHtml(exercise.topics.join(" + "))}</strong>
           <div class="mini-label">${escapeHtml(exercise.academicYear)} · ${escapeHtml(exercise.semester)}. semestre · ${escapeHtml(exercise.month)} · ${escapeHtml(exercise.assessment)}</div>
         </div>
-        <button class="delete-button" type="button" data-delete="${exercise.id}">Remover</button>
       </header>
       <p>${escapeHtml(exercise.text)}</p>
       <div class="prediction-meta">
@@ -1312,9 +1450,9 @@ function renderExercisesByTopic(subject) {
         <header>
           <div>
             <strong>${escapeHtml(exercise.type || "Exercicio")}</strong>
+            <div class="mini-label">${escapeHtml(exercise.sourceType || "Documento")}</div>
             <div class="mini-label">${escapeHtml(exercise.academicYear)} · ${escapeHtml(exercise.semester)}. semestre · ${escapeHtml(exercise.month)} · ${escapeHtml(exercise.assessment)}</div>
           </div>
-          <button class="delete-button" type="button" data-delete="${exercise.id}">Remover</button>
         </header>
         <p>${escapeHtml(cleanExerciseText(exercise.text))}</p>
         <label class="solution-editor">
@@ -1326,6 +1464,7 @@ function renderExercisesByTopic(subject) {
         </div>
         <div class="prediction-meta">
           <span class="pill">${escapeHtml(exercise.difficulty)}</span>
+          <span class="pill">${escapeHtml(exercise.sourceType || "Documento")}</span>
           <span class="pill">${escapeHtml((exercise.keywords || []).slice(0, 3).join(", ") || topic)}</span>
         </div>
       `;
@@ -1376,26 +1515,6 @@ function openSubjectModal() {
 function closeSubjectModal() {
   els.subjectModal.classList.remove("open");
   els.subjectModal.setAttribute("aria-hidden", "true");
-}
-
-function removeSubject(subjectId) {
-  if (state.subjects.length === 1) {
-    els.subjectManagerNote.textContent = "Mantem pelo menos uma disciplina criada.";
-    return;
-  }
-
-  const subject = state.subjects.find((item) => item.id === subjectId);
-  const confirmed = confirm(`Anular "${subject?.name || "esta disciplina"}" e remover os exercicios associados?`);
-  if (!confirmed) return;
-
-  state.subjects = state.subjects.filter((item) => item.id !== subjectId);
-
-  if (selectedSubjectId === subjectId) {
-    selectedSubjectId = state.subjects[0].id;
-  }
-
-  render();
-  els.subjectManagerNote.textContent = `${subject?.name || "Disciplina"} anulada.`;
 }
 
 function saveExerciseSolution(exerciseId) {
@@ -1476,16 +1595,11 @@ els.subjectModal.addEventListener("click", (event) => {
 
 els.subjectManagerList.addEventListener("click", (event) => {
   const subjectToOpen = event.target.dataset.openSubject;
-  const subjectToRemove = event.target.dataset.removeSubject;
 
   if (subjectToOpen) {
     selectedSubjectId = subjectToOpen;
     render();
     closeSubjectModal();
-  }
-
-  if (subjectToRemove) {
-    removeSubject(subjectToRemove);
   }
 });
 
@@ -1516,52 +1630,10 @@ els.historyList.addEventListener("click", (event) => {
   const solutionId = event.target.dataset.saveSolution;
   if (solutionId) {
     saveExerciseSolution(solutionId);
-    return;
   }
-
-  const id = event.target.dataset.delete;
-  if (!id) return;
-
-  const subject = getSubject();
-  subject.exercises = subject.exercises.filter((exercise) => exercise.id !== id);
-  render();
 });
 
 els.seedButton.addEventListener("click", addSampleData);
-
-els.clearSubject.addEventListener("click", () => {
-  const subject = getSubject();
-  if (!subject.exercises.length) return;
-  subject.exercises = [];
-  render();
-});
-
-els.exportButton.addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "exampulse-dados.json";
-  link.click();
-  URL.revokeObjectURL(url);
-});
-
-els.importFile.addEventListener("change", async (event) => {
-  const file = event.target.files?.[0];
-  if (!file) return;
-
-  try {
-    const imported = JSON.parse(await file.text());
-    if (!Array.isArray(imported.subjects)) throw new Error("Formato invalido");
-    state.subjects = normalizeState(imported).subjects;
-    selectedSubjectId = imported.selectedSubjectId || state.subjects[0].id;
-    render();
-  } catch {
-    els.analysisPreview.textContent = "Esse botao so aceita backups JSON da app. Para exames/PDF/Word/imagens usa Escolher exames/documentos.";
-  } finally {
-    event.target.value = "";
-  }
-});
 
 render();
 initSupabaseSync();

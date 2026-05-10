@@ -650,13 +650,6 @@ textarea {
   font-weight: 800;
 }
 
-.delete-button {
-  border: 0;
-  background: transparent;
-  color: #a23d2d;
-  font-weight: 900;
-}
-
 .modal-backdrop {
   position: fixed;
   inset: 0;

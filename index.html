@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>ExamPulse</title>
-    <link rel="stylesheet" href="styles.css?v=10">
+    <link rel="stylesheet" href="styles.css?v=11">
   </head>
   <body>
     <div class="app-shell">
@@ -36,13 +36,6 @@
           <div>
             <p class="eyebrow">Analise de exames anteriores</p>
             <h1 id="subject-title">Sistemas Digitais</h1>
-          </div>
-          <div class="top-actions">
-            <button id="export-button" class="secondary-button" type="button">Guardar backup</button>
-            <label class="secondary-button file-trigger" title="Importa apenas backups JSON criados nesta app">
-              Restaurar backup
-              <input id="import-file" type="file" accept="application/json">
-            </label>
           </div>
         </header>
 
@@ -183,7 +176,6 @@
               <p class="eyebrow">Base de conhecimento</p>
               <h2>Exercicios separados por tema</h2>
             </div>
-            <button id="clear-subject" class="danger-button" type="button">Limpar disciplina</button>
           </div>
           <div id="history-list" class="history-list"></div>
         </section>
@@ -223,6 +215,6 @@
     <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="app.js?v=10"></script>
+    <script src="app.js?v=11"></script>
   </body>
 </html>
