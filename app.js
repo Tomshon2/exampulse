@@ -1,5 +1,5 @@
 const STORAGE_KEY = "exampulse.v1";
-const ANALYZER_VERSION = 2;
+const ANALYZER_VERSION = 3;
 const SUPABASE_URL = "https://woostdadplbikfwfiqjd.supabase.co";
 const SUPABASE_KEY = "sb_publishable_7-rfzQ6TU8nYlADkHEkS9Q_zUHPAOKD";
 const SUPABASE_IMAGE_BUCKET = "exercise-images";
@@ -520,8 +520,9 @@ function isBoilerplateText(normalized) {
   return boilerplateHits >= 2 && !hasQuestionSignal(normalized);
 }
 
-function classifyExercise(text, subject) {
+function classifyExercise(text, subject, options = {}) {
   const processed = preprocessText(text);
+  const forcedTopic = normalizeManualTopicName(options.manualTopic || "");
   const ngrams = extractNgrams(processed.contentTokens, 1, 3);
   const scored = getTopicSet(subject)
     .map((topic) => {
@@ -537,19 +538,15 @@ function classifyExercise(text, subject) {
     .sort((a, b) => b.score - a.score);
 
   const customAndKnown = scored.filter((topic) => !GENERIC_TOPICS.some((generic) => generic.name === topic.name));
-  const best = customAndKnown[0];
-  const needsNewTopic = !best || (best.score < 4.2 && (best.similarity || 0) < 0.56);
-  const inferredTopic = needsNewTopic ? ensureCustomTopic(subject, text) : null;
-  const topics = [
-    ...(inferredTopic ? [inferredTopic] : []),
-    ...customAndKnown.slice(0, 2).map((topic) => topic.name),
-  ].slice(0, 2);
+  const topics = forcedTopic
+    ? [ensureManualTopic(subject, forcedTopic)]
+    : customAndKnown.slice(0, 2).map((topic) => topic.name);
 
   return {
-    topics: topics.length ? topics : ["Tema por confirmar"],
+    topics: topics.length ? topics : ["Tema por definir"],
     difficulty: estimateDifficulty(processed.normalized, text.length),
     type: estimateType(processed.normalized, processed.actionTokens),
-    keywords: extractKeywords(text).slice(0, 10),
+    keywords: forcedTopic ? [] : extractKeywords(text).slice(0, 10),
   };
 }
 
@@ -698,6 +695,38 @@ function ensureCustomTopic(subject, text) {
   return inferred;
 }
 
+function normalizeManualTopicName(value) {
+  const cleaned = String(value || "")
+    .replace(/^materia\s*:\s*/i, "")
+    .replace(/[.;:,]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "";
+  return titleCase(cleaned).replace(/\bRam\b/g, "RAM").replace(/\bRom\b/g, "ROM");
+}
+
+function ensureManualTopic(subject, topicName) {
+  const normalizedName = normalizeText(topicName);
+  const existing = getTopicSet(subject).find((topic) => normalizeText(topic.name) === normalizedName);
+  if (existing) return existing.name;
+
+  subject.customTopics = subject.customTopics || [];
+  subject.customTopics.push({
+    name: topicName,
+    strongKeywords: [],
+    mediumKeywords: [],
+    keywords: [],
+    synonyms: [],
+    verbs: [],
+    subtopics: [],
+    occurrenceHistory: [],
+    years: [],
+    sourceTypes: [],
+    custom: true,
+  });
+  return topicName;
+}
+
 function registerTopicOccurrences(subject, topicNames, context) {
   subject.customTopics = subject.customTopics || [];
   const year = Number(context?.year) || null;
@@ -777,8 +806,8 @@ function estimateType(normalized, actionTokens = []) {
 }
 
 function parseYearStart(academicYear) {
-  const match = academicYear.match(/\d{4}/);
-  return match ? Number(match[0]) : new Date().getFullYear();
+  const match = String(academicYear || "").match(/\d{4}/);
+  return match ? Number(match[0]) : 0;
 }
 
 function inferAcademicYear(text, fileName = "") {
@@ -899,7 +928,8 @@ function addExercisesFromForm(formData) {
 
     existingSignatures.add(signature);
     const confidence = piece.confidence || estimateSegmentationConfidence(text, piece);
-    const analysis = classifyExercise(text, subject);
+    const manualTopic = normalizeManualTopicName(piece.manualTopic || formData.manualTopic || "");
+    const analysis = classifyExercise(text, subject, { manualTopic });
     registerTopicOccurrences(subject, analysis.topics, {
       year: parseYearStart(formData.academicYear),
       sourceType: formData.sourceType || "Manual",
@@ -921,8 +951,6 @@ function addExercisesFromForm(formData) {
       confidence,
       analysisNotes: piece.analysisNotes || buildSegmentationNote(text, confidence),
       questionNumber: piece.questionNumber || newExercises.length + 1,
-      answerStructure: buildAnswerStructureSuggestion(analysis, text),
-      notes: "",
       createdAt: now,
       ...analysis,
     });
@@ -935,14 +963,7 @@ function addExercisesFromForm(formData) {
 }
 
 function getManualSourceName(dateValue) {
-  const date = new Date(dateValue);
-  const stamp = date.toLocaleString("pt-PT", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  return `Perguntas coladas ${stamp}`;
+  return "Perguntas coladas";
 }
 
 function estimateSegmentationConfidence(text, piece = {}) {
@@ -996,9 +1017,6 @@ async function importDocumentFiles() {
 
   const metadata = getExerciseMetadataFromForm();
   const shouldInferAcademicYear = !metadata.academicYear.trim();
-  if (shouldInferAcademicYear) {
-    metadata.academicYear = guessCurrentAcademicYear();
-  }
 
   showImportMessage(`A ler ${files.length} ficheiro${files.length > 1 ? "s" : ""}...`);
 
@@ -1015,7 +1033,7 @@ async function importDocumentFiles() {
         const text = payload.text || "";
         const documentInfo = detectDocumentType(text, file.name);
         const academicYear = shouldInferAcademicYear
-          ? inferAcademicYear(text, file.name) || metadata.academicYear
+          ? inferAcademicYear(text, file.name) || ""
           : metadata.academicYear;
         const added = addExercisesFromForm({
           ...metadata,
@@ -1052,7 +1070,7 @@ async function importDocumentFiles() {
     const duplicateNote = totalSkipped ? ` Ignorei ${totalSkipped} duplicados.` : "";
     const sourceNote = sourceTypes.size ? ` Tipo detetado: ${[...sourceTypes].join(", ")}.` : "";
     const lowConfidence = getSubject().exercises.filter((exercise) => exercise.confidence === "Baixa").length;
-    showImportMessage(`${totalExercises} perguntas reais importadas.${sourceNote} Temas identificados/criados: ${[...topicNames].join(", ")}. Perguntas para rever: ${lowConfidence}.${duplicateNote}${failedNote}`);
+    showImportMessage(`${totalExercises} perguntas reais importadas.${sourceNote} Temas identificados: ${[...topicNames].join(", ")}. Perguntas para rever: ${lowConfidence}.${duplicateNote}${failedNote}`);
   } catch (error) {
     showImportMessage(`Nao consegui importar automaticamente: ${error.message}`);
   }
@@ -1065,14 +1083,8 @@ function getExerciseMetadataFromForm() {
     semester: formData.semester || "1",
     month: formData.month || "Janeiro",
     assessment: formData.assessment || "Frequencia 1",
+    manualTopic: formData.manualTopic || "",
   };
-}
-
-function guessCurrentAcademicYear() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const start = now.getMonth() >= 8 ? year : year - 1;
-  return `${start}/${start + 1}`;
 }
 
 function showImportMessage(message) {
@@ -1322,7 +1334,10 @@ async function saveManualSelections() {
     }
 
     const metadata = getExerciseMetadataFromForm();
-    if (!metadata.academicYear.trim()) metadata.academicYear = guessCurrentAcademicYear();
+    if (!metadata.academicYear.trim()) {
+      showManualMessage("Preenche a data/ano do teste antes de guardar as perguntas.");
+      return;
+    }
     const added = addExercisesFromForm({
       ...metadata,
       sourceType: "Teste/Exame",
@@ -2056,7 +2071,9 @@ function calculatePredictions(subject) {
 
   for (const exercise of exercises) {
     const sourceWeight = getSourceWeight(exercise);
-    for (const topic of exercise.topics) {
+    for (const rawTopic of exercise.topics || []) {
+      const topic = normalizeStoredTopic(rawTopic);
+      if (!topic) continue;
       if (!byTopic.has(topic)) {
         byTopic.set(topic, {
           topic,
@@ -2143,6 +2160,14 @@ function buildLikelyExercise(topic, type, keywords, examples) {
       .replace("{verbos}", verbText),
     evidence: clip(cleanExerciseText(base), 240),
   };
+}
+
+function normalizeStoredTopic(topic) {
+  const value = String(topic || "").trim();
+  if (!value) return "";
+  if (/^materia\s*:/i.test(value) && value.split(/\s+/).length > 3) return "Tema por definir";
+  if (/^(tema por confirmar|tema por definir)$/i.test(value)) return "Tema por definir";
+  return value;
 }
 
 function getSourceWeight(exercise) {
@@ -2243,7 +2268,9 @@ function renderSubjectManager() {
 }
 
 function renderMetrics(subject, predictions) {
-  const topicCount = new Set(subject.exercises.flatMap((exercise) => exercise.topics)).size;
+  const topicCount = new Set(subject.exercises.flatMap((exercise) =>
+    (exercise.topics || []).map(normalizeStoredTopic).filter(Boolean)
+  )).size;
   const yearCount = new Set(subject.exercises.map((exercise) => exercise.academicYear)).size;
 
   els.metrics.exercises.textContent = subject.exercises.length;
@@ -2278,7 +2305,9 @@ function renderDocuments(subject) {
 
   for (const exercises of groups) {
     const first = exercises[0];
-    const topics = [...new Set(exercises.flatMap((exercise) => exercise.topics || []))].slice(0, 5);
+    const topics = [...new Set(exercises.flatMap((exercise) =>
+      (exercise.topics || []).map(normalizeStoredTopic).filter(Boolean)
+    ))].slice(0, 5);
     const lowConfidence = exercises.filter((exercise) => exercise.confidence === "Baixa").length;
     const card = document.createElement("article");
     card.className = "document-card";
@@ -2326,8 +2355,7 @@ function generateSubjectAdvice() {
   }
 
   const topicLines = predictions.map((prediction, index) => {
-    const keywords = prediction.topKeywords.slice(0, 3).join(", ");
-    return `${index + 1}. ${prediction.topic}: treinar ${prediction.topType.toLowerCase()} e rever ${keywords || "as perguntas guardadas"}.`;
+    return `${index + 1}. ${prediction.topic}: rever as perguntas reais guardadas e escrever a resolucao completa.`;
   });
 
   els.subjectAdvice.value = [
@@ -2437,7 +2465,6 @@ function renderPredictions(predictions) {
         <span class="pill">${escapeHtml(prediction.sourceTypes.slice(0, 2).join(", "))}</span>
       </div>
       <p class="prediction-reason">${escapeHtml(buildPredictionExplanation(prediction))}</p>
-      <p class="prediction-reason">Conceitos frequentes: ${escapeHtml(prediction.topKeywords.slice(0, 5).join(", ") || "ainda poucos dados")}</p>
       <div class="solution-actions">
         <button class="secondary-button" type="button" data-filter-topic="${escapeHtml(prediction.topic)}">Ver perguntas reais</button>
         <button class="secondary-button" type="button" data-generate-topic="${escapeHtml(prediction.topic)}">Gerar exemplo provavel</button>
@@ -2449,20 +2476,22 @@ function renderPredictions(predictions) {
   const suggestions = predictions.slice(0, 5);
 
   for (const prediction of suggestions) {
+    const exampleText = prediction.examples?.[0]?.text
+      ? clip(cleanExerciseText(prediction.examples[0].text), 260)
+      : "Ainda ha poucas perguntas reais neste tema.";
     const card = document.createElement("article");
     card.className = "exercise-card";
     card.innerHTML = `
       <header>
-        <strong>${escapeHtml(prediction.likelyExercise.title)}</strong>
+        <strong>${escapeHtml(prediction.topic)}</strong>
         <span class="mini-label">${prediction.score}%</span>
       </header>
-      <p>${escapeHtml(prediction.likelyExercise.prompt)}</p>
-      <p class="evidence-text">${escapeHtml(prediction.likelyExercise.evidence)}</p>
+      <p>${escapeHtml(buildPredictionExplanation(prediction))}</p>
+      <p class="evidence-text">${escapeHtml(exampleText)}</p>
       <div class="prediction-meta">
         <span class="pill">${prediction.count} exemplos</span>
         <span class="pill">${prediction.years.size} anos</span>
         <span class="pill">${escapeHtml(prediction.sourceTypes.slice(0, 2).join(", "))}</span>
-        <span class="pill">${escapeHtml(prediction.topKeywords.slice(0, 2).join(", ") || prediction.topic)}</span>
       </div>
     `;
     els.exerciseSuggestions.append(card);
@@ -2488,7 +2517,9 @@ function renderQuestionFilters(subject) {
     assessment: els.filters.assessment.value,
     status: els.filters.status.value,
   };
-  const topics = [...new Set(subject.exercises.flatMap((exercise) => exercise.topics || []))].sort();
+  const topics = [...new Set(subject.exercises.flatMap((exercise) =>
+    (exercise.topics || []).map(normalizeStoredTopic).filter(Boolean)
+  ))].sort();
   const years = [...new Set(subject.exercises.map((exercise) => exercise.academicYear).filter(Boolean))].sort().reverse();
   const semesters = [...new Set(subject.exercises.map((exercise) => exercise.semester).filter(Boolean))].sort();
   const assessments = [...new Set(subject.exercises.map((exercise) => exercise.assessment).filter(Boolean))].sort();
@@ -2531,7 +2562,8 @@ function getQuestionFilters() {
 }
 
 function matchesQuestionFilters(exercise, filters) {
-  if (filters.topic && !(exercise.topics || []).includes(filters.topic)) return false;
+  const exerciseTopics = (exercise.topics || []).map(normalizeStoredTopic);
+  if (filters.topic && !exerciseTopics.includes(filters.topic)) return false;
   if (filters.year && exercise.academicYear !== filters.year) return false;
   if (filters.semester && exercise.semester !== filters.semester) return false;
   if (filters.assessment && exercise.assessment !== filters.assessment) return false;
@@ -2541,8 +2573,6 @@ function matchesQuestionFilters(exercise, filters) {
   if (filters.status === "without-solution" && exercise.solution) return false;
   if (filters.status === "with-image" && !(exercise.images || []).length) return false;
   if (filters.status === "without-image" && (exercise.images || []).length) return false;
-  if (filters.status === "with-notes" && !exercise.notes) return false;
-  if (filters.status === "without-notes" && exercise.notes) return false;
   if (filters.status === "low-confidence" && exercise.confidence !== "Baixa") return false;
   return true;
 }
@@ -2575,7 +2605,9 @@ function renderExercisesByDocument(subject, documentKey = "") {
 
   for (const exercises of sortedGroups) {
     const firstExercise = exercises[0];
-    const topics = [...new Set(exercises.flatMap((exercise) => exercise.topics || []))].slice(0, 5);
+    const topics = [...new Set(exercises.flatMap((exercise) =>
+      (exercise.topics || []).map(normalizeStoredTopic).filter(Boolean)
+    ))].slice(0, 5);
     const group = document.createElement("details");
     group.className = "topic-group document-group";
     group.open = sortedGroups.length === 1;
@@ -2595,7 +2627,7 @@ function renderExercisesByDocument(subject, documentKey = "") {
 
     const list = group.querySelector(".topic-exercises");
     exercises.forEach((exercise, index) => {
-      const primaryTopic = exercise.topics?.[0] || "Tema por confirmar";
+      const primaryTopic = normalizeStoredTopic(exercise.topics?.[0]) || "Tema por definir";
       const card = document.createElement("article");
       card.className = "history-card";
       card.innerHTML = `
@@ -2609,17 +2641,13 @@ function renderExercisesByDocument(subject, documentKey = "") {
         <p>${escapeHtml(cleanExerciseText(exercise.text))}</p>
         ${renderExerciseImages(exercise)}
         <label class="solution-editor">
+          Materia desta pergunta
+          <input data-topic-edit="${exercise.id}" type="text" value="${escapeHtml(primaryTopic === "Tema por definir" ? "" : primaryTopic)}" placeholder="Ex: RAM e ROM, maquinas de estados, contadores">
+        </label>
+        <label class="solution-editor">
           Resolucao do aluno
           <textarea data-solution="${exercise.id}" rows="4" placeholder="Escreve aqui a resolucao completa desta pergunta...">${escapeHtml(exercise.solution || "")}</textarea>
         </label>
-        <label class="solution-editor">
-          Notas de estudo
-          <textarea data-notes="${exercise.id}" rows="3" placeholder="Notas, duvidas, erros comuns ou pistas do professor...">${escapeHtml(exercise.notes || "")}</textarea>
-        </label>
-        <div class="answer-structure">
-          <strong>Estrutura de resposta sugerida</strong>
-          <p>${escapeHtml(exercise.answerStructure || buildAnswerStructureSuggestion(exercise, exercise.text))}</p>
-        </div>
         <div class="solution-actions">
           <button class="secondary-button" type="button" data-save-solution="${exercise.id}">Guardar resolucao</button>
         </div>
@@ -2628,7 +2656,6 @@ function renderExercisesByDocument(subject, documentKey = "") {
           <span class="pill">Confianca: ${escapeHtml(exercise.confidence || "Media")}</span>
           ${exercise.confidence === "Baixa" ? `<span class="pill warning-pill">${escapeHtml(exercise.analysisNotes || "Rever separacao")}</span>` : ""}
           <span class="pill">${escapeHtml(primaryTopic)}</span>
-          <span class="pill">${escapeHtml((exercise.keywords || []).slice(0, 3).join(", ") || primaryTopic)}</span>
         </div>
       `;
       list.append(card);
@@ -2677,11 +2704,11 @@ function buildExampleTest(subject, mode = "frequent") {
 
   const questions = selected.map((item, index) => {
     const age = Math.max(0, newestYear - (item.lastSeen || newestYear));
-    const evidence = item.examples?.[0]?.text ? clip(cleanExerciseText(item.examples[0].text), 220) : item.likelyExercise.prompt;
+    const evidence = item.examples?.[0]?.text ? clip(cleanExerciseText(item.examples[0].text), 360) : "Sem pergunta real suficiente.";
     const reason = mode === "overdue"
       ? `Atraso: ${age} ano(s) sem aparecer.`
       : `Probabilidade estimada: ${item.score}%.`;
-    return `${index + 1}. ${item.likelyExercise.title}\nEnunciado sugerido: ${item.likelyExercise.prompt}\nJustificacao: ${reason} Evidencia: ${evidence}`;
+    return `${index + 1}. ${item.topic}\nPergunta real de referencia: ${evidence}\nJustificacao: ${reason} Baseado apenas no historico guardado.`;
   });
 
   return [title, intro, "", ...questions].join("\n\n");
@@ -2710,9 +2737,7 @@ function generateTopicExample(topicName) {
     "Tipo: simulacao informada por perguntas reais anteriores.",
     buildPredictionExplanation(prediction),
     "",
-    `Enunciado sugerido: ${prediction.likelyExercise.prompt}`,
-    "",
-    "Base historica usada:",
+    "Perguntas reais usadas como base:",
     evidence || prediction.likelyExercise.evidence,
   ].join("\n");
 
@@ -2785,14 +2810,19 @@ function saveExerciseSolution(exerciseId) {
   const subject = getSubject();
   const exercise = subject.exercises.find((item) => item.id === exerciseId);
   const textarea = els.historyList.querySelector(`[data-solution="${CSS.escape(exerciseId)}"]`);
-  const notes = els.historyList.querySelector(`[data-notes="${CSS.escape(exerciseId)}"]`);
+  const topicInput = els.historyList.querySelector(`[data-topic-edit="${CSS.escape(exerciseId)}"]`);
 
   if (!exercise || !textarea) return;
 
+  const topicName = normalizeManualTopicName(topicInput?.value || "");
+  if (topicName) {
+    exercise.topics = [ensureManualTopic(subject, topicName)];
+  }
   exercise.solution = textarea.value.trim();
-  exercise.notes = notes?.value.trim() || "";
   persist();
-  els.analysisPreview.textContent = "Resolucao e notas guardadas.";
+  render();
+  activateTab("questions");
+  els.analysisPreview.textContent = "Pergunta atualizada.";
 }
 
 async function clearCurrentSubjectData() {

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>ExamPulse</title>
-    <link rel="stylesheet" href="styles.css?v=18">
+    <link rel="stylesheet" href="styles.css?v=19">
   </head>
   <body>
     <div class="app-shell">
@@ -103,8 +103,8 @@
               </div>
               <div class="form-grid">
                 <label>
-                  Ano letivo
-                  <input name="academicYear" type="text" placeholder="2024/2025" required>
+                  Data/ano do teste
+                  <input name="academicYear" type="text" placeholder="2024/2025 ou 09/02/2022" required>
                 </label>
                 <label>
                   Semestre
@@ -138,6 +138,10 @@
                     <option>Exame</option>
                     <option>Recurso</option>
                   </select>
+                </label>
+                <label class="wide-field">
+                  Materia / tema
+                  <input name="manualTopic" type="text" placeholder="Ex: RAM e ROM, maquinas de estados, contadores">
                 </label>
               </div>
 
@@ -209,7 +213,7 @@
             <label>Ano <select id="question-filter-year"><option value="">Todos</option></select></label>
             <label>Semestre <select id="question-filter-semester"><option value="">Todos</option></select></label>
             <label>Avaliacao <select id="question-filter-assessment"><option value="">Todas</option></select></label>
-            <label>Estado <select id="question-filter-status"><option value="">Todas</option><option value="answered">Respondidas</option><option value="unanswered">Nao respondidas</option><option value="with-solution">Com resolucao</option><option value="without-solution">Sem resolucao</option><option value="with-image">Com imagem</option><option value="without-image">Sem imagem</option><option value="with-notes">Com notas</option><option value="without-notes">Sem notas</option><option value="low-confidence">Separacao duvidosa</option></select></label>
+            <label>Estado <select id="question-filter-status"><option value="">Todas</option><option value="answered">Respondidas</option><option value="unanswered">Nao respondidas</option><option value="with-solution">Com resolucao</option><option value="without-solution">Sem resolucao</option><option value="with-image">Com imagem</option><option value="without-image">Sem imagem</option><option value="low-confidence">Separacao duvidosa</option></select></label>
           </div>
           <div id="history-list" class="history-list"></div>
         </section>

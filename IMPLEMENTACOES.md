@@ -21,20 +21,19 @@ Regra: sempre que houver uma mudanca relevante no sistema, atualizar este fichei
   - Plano de estudo.
 - Persistencia local com `localStorage`.
 - Sync com Supabase para `subjects`, `topics` e `exercises`.
-- Deteccao e classificacao de questoes por tema, tipo, dificuldade e keywords.
+- Deteccao de questoes por tema quando existe correspondencia clara; caso contrario ficam como `Tema por definir` para correcao manual.
 
 ### Importacao e analise
 
 - Importacao de documentos (`pdf`, `docx`, `txt`, `md`, imagens).
 - OCR com `tesseract.js` para imagens e PDFs digitalizados.
-- Separacao automatica de questoes com heuristicas de marcadores e espacos visuais grandes.
+- Separacao manual de questoes por caixas desenhadas sobre o PDF/imagem importado.
 - Deteccao de tipo de documento (teste/exame, caderno, apontamentos).
 - Deteccao de duplicados por assinatura.
 - Metadata por pergunta:
   - confianca da separacao (`Alta`, `Media`, `Baixa`);
   - notas de analise;
-  - numero de pergunta;
-  - estrutura sugerida de resposta.
+  - numero de pergunta.
 
 ### Imagens por questao
 
@@ -57,15 +56,16 @@ Regra: sempre que houver uma mudanca relevante no sistema, atualizar este fichei
 - Botao para gerar teste por materias mais frequentes.
 - Botao para gerar teste por materias mais atrasadas.
 - Texto de teste gerado com justificacao e evidencias do historico.
-- Templates de pergunta por tipo (definicao, comparacao, calculo, interpretacao, explicacao).
+- Testes exemplo baseados em perguntas reais de referencia, sem apresentar enunciados inventados como previsao.
 
 ### UX orientada ao estudante
 
 - Linguagem trocada de "exercicios" para "perguntas reais" onde isso evita ambiguidade.
 - Ranking de temas agora mostra explicacao, nao apenas percentagem.
 - Pagina de perguntas reais tem filtros por tema, ano, avaliacao, estado da resolucao, imagem e confianca baixa.
-- Filtros completados com semestre, respondidas/nao respondidas, notas e imagem.
-- Cada pergunta real pode guardar resolucao do aluno e notas de estudo separadas.
+- Filtros completados com semestre, respondidas/nao respondidas, imagem e confianca baixa.
+- Cada pergunta real pode guardar resolucao do aluno.
+- Cada pergunta real permite corrigir manualmente a materia/tema usada no ranking.
 - Pagina de documentos analisados mostra origem, ano, tipo, numero de perguntas, temas e perguntas a rever.
 - Cada tema provavel tem acao para ver perguntas reais associadas e gerar um exemplo provavel desse tema.
 - Plano de estudo estruturado com prioridade, ordem sugerida, proximos passos, metas semanais, temas fortes e temas ausentes.
@@ -80,6 +80,10 @@ Regra: sempre que houver uma mudanca relevante no sistema, atualizar este fichei
   - ao escolher um documento, abre logo a selecao manual;
   - a opcao de analise automatica deixou de estar disponivel na interface;
   - tipos de avaliacao reduzidos a Frequencia 1, Frequencia 2, Exame e Recurso.
+- Interface limpa:
+  - removidos campos de notas de estudo e estrutura sugerida de resposta;
+  - removida apresentacao de conceitos/tokens frequentes;
+  - removida atribuicao automatica da data atual quando falta data/ano do teste.
 
 ### Documentacao
 
@@ -90,11 +94,12 @@ Regra: sempre que houver uma mudanca relevante no sistema, atualizar este fichei
 
 ### Decisao de produto (confirmada)
 
-Modelo hibrido:
+Modelo manual:
 
-1. A app assinala automaticamente as questoes.
-2. O aluno faz verificacao final manual.
-3. O aluno corrige apenas excecoes (dividir/juntar/rejeitar/reatribuir imagem).
+1. O aluno importa o documento.
+2. O aluno seleciona as perguntas reais por caixas.
+3. O aluno marca anexos/imagens ligados a cada pergunta.
+4. O aluno define ou corrige a materia/tema quando necessario.
 
 ### Upgrade do motor de classificacao e previsao (feito parcialmente)
 
@@ -114,7 +119,8 @@ Implementado agora no motor atual:
   - verbos de acao,
   - similaridade aproximada.
 - Prevencao melhor de temas duplicados:
-  - antes de criar tema novo, compara similaridade global com temas existentes.
+  - a app deixou de criar temas novos a partir de palavras soltas;
+  - novos temas entram por escolha manual do aluno.
 - Separacao mais clara entre:
   - conteudo tematico (identificacao do tema),
   - verbos de acao (tipo de pergunta).

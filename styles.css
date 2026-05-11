@@ -284,6 +284,7 @@ h2 {
 }
 
 .advice-panel textarea,
+.solution-editor input,
 .solution-editor textarea {
   width: 100%;
   border: 1px solid var(--line);
@@ -446,6 +447,10 @@ h2 {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
+}
+
+.wide-field {
+  grid-column: span 2;
 }
 
 .wide-label {
@@ -1124,6 +1129,10 @@ textarea {
   .filter-grid,
   .document-stats {
     grid-template-columns: 1fr;
+  }
+
+  .wide-field {
+    grid-column: 1;
   }
 
   .tabs {
