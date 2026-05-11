@@ -454,10 +454,95 @@ h2 {
 
 .document-import {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 12px;
   align-items: stretch;
   margin-top: 16px;
+}
+
+.manual-selection-panel {
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fbfa;
+  padding: 14px;
+}
+
+.manual-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.active-tool {
+  border-color: var(--teal);
+  color: var(--teal-dark);
+  box-shadow: inset 0 0 0 2px rgba(15, 118, 110, 0.12);
+}
+
+.manual-status {
+  color: var(--muted);
+  margin: 0 0 12px;
+}
+
+.manual-page-viewer {
+  display: grid;
+  gap: 16px;
+  max-height: 720px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.manual-page {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+  user-select: none;
+}
+
+.manual-page img {
+  display: block;
+  width: 100%;
+  pointer-events: none;
+}
+
+.manual-overlay {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+}
+
+.manual-box {
+  position: absolute;
+  border: 2px solid var(--teal);
+  background: rgba(15, 118, 110, 0.12);
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+.annex-box {
+  border-color: var(--gold);
+  background: rgba(214, 157, 47, 0.16);
+}
+
+.preview-box {
+  border-style: dashed;
+  background: rgba(52, 103, 167, 0.12);
+}
+
+.manual-box span {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  background: #10272a;
+  color: #fff;
+  border-radius: 6px;
+  padding: 4px 7px;
+  font-size: 0.78rem;
+  font-weight: 900;
 }
 
 .file-drop {
@@ -1020,6 +1105,10 @@ textarea {
 
   .document-import {
     display: flex;
+  }
+
+  .manual-tools {
+    display: grid;
   }
 
   .subject-manager-row {

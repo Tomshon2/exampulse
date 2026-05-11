@@ -70,6 +70,12 @@ Regra: sempre que houver uma mudanca relevante no sistema, atualizar este fichei
 - Cada tema provavel tem acao para ver perguntas reais associadas e gerar um exemplo provavel desse tema.
 - Plano de estudo estruturado com prioridade, ordem sugerida, proximos passos, metas semanais, temas fortes e temas ausentes.
 - Funcoes antigas de historico por "exercicios" foram removidas para evitar regressao de linguagem e fluxo.
+- Modo de selecao manual:
+  - renderiza PDF/imagem para o aluno desenhar caixas;
+  - cada caixa de pergunta recebe numeracao sequencial;
+  - anexos podem ser marcados e ficam ligados a ultima pergunta;
+  - permite desfazer a ultima selecao, limpar selecoes e guardar perguntas selecionadas;
+  - recorta as areas selecionadas e usa OCR no recorte da pergunta.
 
 ### Documentacao
 

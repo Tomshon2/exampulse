@@ -124,6 +124,13 @@ const SAMPLE_EXERCISES = `1. Simplifique a funcao logica F(A,B,C,D) usando mapas
 
 const state = loadState();
 let selectedSubjectId = state.selectedSubjectId || state.subjects[0].id;
+const manualSelection = {
+  fileName: "",
+  mode: "question",
+  pages: [],
+  selections: [],
+  drag: null,
+};
 
 const els = {
   subjectForm: document.querySelector("#subject-form"),
@@ -141,6 +148,15 @@ const els = {
   documentFiles: document.querySelector("#document-file"),
   documentFileStatus: document.querySelector("#document-file-status"),
   documentImportButton: document.querySelector("#document-import-button"),
+  manualSelectButton: document.querySelector("#manual-select-button"),
+  manualSelectionPanel: document.querySelector("#manual-selection-panel"),
+  manualQuestionMode: document.querySelector("#manual-question-mode"),
+  manualAnnexMode: document.querySelector("#manual-annex-mode"),
+  manualUndo: document.querySelector("#manual-undo"),
+  manualClear: document.querySelector("#manual-clear"),
+  manualSave: document.querySelector("#manual-save"),
+  manualSelectionStatus: document.querySelector("#manual-selection-status"),
+  manualPageViewer: document.querySelector("#manual-page-viewer"),
   exerciseForm: document.querySelector("#exercise-form"),
   analysisPreview: document.querySelector("#analysis-preview"),
   topicPreview: document.querySelector("#topic-preview"),
@@ -1066,6 +1082,294 @@ function guessCurrentAcademicYear() {
 function showImportMessage(message) {
   els.analysisPreview.textContent = message;
   els.documentFileStatus.textContent = message;
+}
+
+function showManualMessage(message) {
+  els.manualSelectionStatus.textContent = message;
+  els.analysisPreview.textContent = message;
+}
+
+async function openManualSelection() {
+  const files = [...(els.documentFiles.files || [])];
+  const file = files[0];
+  if (!file) {
+    showManualMessage("Escolhe primeiro um PDF ou imagem para selecionar perguntas manualmente.");
+    return;
+  }
+
+  const isSupported = file.type === "application/pdf" ||
+    file.name.toLowerCase().endsWith(".pdf") ||
+    file.type.startsWith("image/") ||
+    /\.(png|jpe?g|webp)$/i.test(file.name);
+  if (!isSupported) {
+    showManualMessage("A selecao manual funciona com PDF ou imagem. Para TXT/Word usa a importacao automatica ou cola as perguntas.");
+    return;
+  }
+
+  els.manualSelectionPanel.hidden = false;
+  els.manualSelectButton.disabled = true;
+  els.manualSelectButton.textContent = "A preparar...";
+  showManualMessage("A preparar paginas para selecao manual...");
+
+  try {
+    manualSelection.fileName = file.name;
+    manualSelection.mode = "question";
+    manualSelection.selections = [];
+    manualSelection.pages = await renderManualPages(file);
+    renderManualSelectionViewer();
+    setManualMode("question");
+    showManualMessage("Arrasta uma caixa sobre cada pergunta. As perguntas ficam numeradas pela ordem em que as selecionas.");
+  } catch (error) {
+    showManualMessage(`Nao consegui abrir selecao manual: ${error.message}`);
+  } finally {
+    els.manualSelectButton.disabled = false;
+    els.manualSelectButton.textContent = "Selecionar perguntas manualmente";
+  }
+}
+
+async function renderManualPages(file) {
+  if (file.type.startsWith("image/") || /\.(png|jpe?g|webp)$/i.test(file.name)) {
+    return [{ index: 0, src: await fileToDataUrl(file) }];
+  }
+
+  if (!window.pdfjsLib) throw new Error("leitor PDF nao carregou");
+  const pdf = await window.pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+  const pages = [];
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    const page = await pdf.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 1.55 });
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    canvas.width = Math.floor(viewport.width);
+    canvas.height = Math.floor(viewport.height);
+    await page.render({ canvasContext: context, viewport }).promise;
+    pages.push({ index: pageNumber - 1, src: canvas.toDataURL("image/png") });
+  }
+  return pages;
+}
+
+function renderManualSelectionViewer() {
+  els.manualPageViewer.innerHTML = "";
+  for (const page of manualSelection.pages) {
+    const pageEl = document.createElement("div");
+    pageEl.className = "manual-page";
+    pageEl.dataset.pageIndex = page.index;
+    pageEl.innerHTML = `
+      <img src="${escapeHtml(page.src)}" alt="Pagina ${page.index + 1}">
+      <div class="manual-overlay"></div>
+    `;
+    els.manualPageViewer.append(pageEl);
+  }
+  renderManualSelections();
+}
+
+function renderManualSelections() {
+  els.manualPageViewer.querySelectorAll(".manual-overlay").forEach((overlay) => {
+    overlay.innerHTML = "";
+  });
+
+  for (const selection of manualSelection.selections) {
+    const pageEl = els.manualPageViewer.querySelector(`[data-page-index="${selection.pageIndex}"]`);
+    const overlay = pageEl?.querySelector(".manual-overlay");
+    if (!overlay) continue;
+    const box = document.createElement("div");
+    box.className = `manual-box ${selection.type === "annex" ? "annex-box" : "question-box"}`;
+    box.style.left = `${selection.rect.x}%`;
+    box.style.top = `${selection.rect.y}%`;
+    box.style.width = `${selection.rect.width}%`;
+    box.style.height = `${selection.rect.height}%`;
+    box.innerHTML = `<span>${selection.type === "annex" ? `Anexo ${selection.questionNumber}` : `Pergunta ${selection.questionNumber}`}</span>`;
+    overlay.append(box);
+  }
+
+  const questionCount = manualSelection.selections.filter((item) => item.type === "question").length;
+  const annexCount = manualSelection.selections.filter((item) => item.type === "annex").length;
+  els.manualSelectionStatus.textContent = `${questionCount} pergunta${questionCount === 1 ? "" : "s"} selecionada${questionCount === 1 ? "" : "s"}; ${annexCount} anexo${annexCount === 1 ? "" : "s"} ligado${annexCount === 1 ? "" : "s"}.`;
+}
+
+function setManualMode(mode) {
+  manualSelection.mode = mode;
+  els.manualQuestionMode.classList.toggle("active-tool", mode === "question");
+  els.manualAnnexMode.classList.toggle("active-tool", mode === "annex");
+  const message = mode === "question"
+    ? "Modo pergunta: a proxima caixa cria a pergunta seguinte."
+    : "Modo anexo: a proxima caixa fica ligada a ultima pergunta selecionada.";
+  els.manualSelectionStatus.textContent = message;
+}
+
+function getManualRect(event, pageEl) {
+  const bounds = pageEl.getBoundingClientRect();
+  const x = Math.max(0, Math.min(bounds.width, event.clientX - bounds.left));
+  const y = Math.max(0, Math.min(bounds.height, event.clientY - bounds.top));
+  return { x, y, width: bounds.width, height: bounds.height };
+}
+
+function startManualDrag(event) {
+  const pageEl = event.target.closest(".manual-page");
+  if (!pageEl || event.button !== 0) return;
+  event.preventDefault();
+  const point = getManualRect(event, pageEl);
+  manualSelection.drag = {
+    pageEl,
+    pageIndex: Number(pageEl.dataset.pageIndex),
+    startX: point.x,
+    startY: point.y,
+    width: point.width,
+    height: point.height,
+  };
+  const preview = document.createElement("div");
+  preview.className = "manual-box preview-box";
+  pageEl.querySelector(".manual-overlay").append(preview);
+  manualSelection.drag.preview = preview;
+  updateManualDrag(event);
+}
+
+function updateManualDrag(event) {
+  if (!manualSelection.drag) return;
+  const drag = manualSelection.drag;
+  const point = getManualRect(event, drag.pageEl);
+  const left = Math.min(drag.startX, point.x);
+  const top = Math.min(drag.startY, point.y);
+  const width = Math.abs(point.x - drag.startX);
+  const height = Math.abs(point.y - drag.startY);
+  drag.preview.style.left = `${(left / drag.width) * 100}%`;
+  drag.preview.style.top = `${(top / drag.height) * 100}%`;
+  drag.preview.style.width = `${(width / drag.width) * 100}%`;
+  drag.preview.style.height = `${(height / drag.height) * 100}%`;
+}
+
+function finishManualDrag(event) {
+  if (!manualSelection.drag) return;
+  const drag = manualSelection.drag;
+  const point = getManualRect(event, drag.pageEl);
+  const left = Math.min(drag.startX, point.x);
+  const top = Math.min(drag.startY, point.y);
+  const width = Math.abs(point.x - drag.startX);
+  const height = Math.abs(point.y - drag.startY);
+  drag.preview.remove();
+  manualSelection.drag = null;
+
+  if (width < 24 || height < 24) {
+    renderManualSelections();
+    return;
+  }
+
+  const questionCount = manualSelection.selections.filter((item) => item.type === "question").length;
+  const lastQuestion = [...manualSelection.selections].reverse().find((item) => item.type === "question");
+  if (manualSelection.mode === "annex" && !lastQuestion) {
+    showManualMessage("Seleciona primeiro uma pergunta antes de marcar anexos.");
+    renderManualSelections();
+    return;
+  }
+
+  const questionNumber = manualSelection.mode === "question"
+    ? questionCount + 1
+    : lastQuestion.questionNumber;
+
+  manualSelection.selections.push({
+    id: crypto.randomUUID(),
+    type: manualSelection.mode,
+    questionNumber,
+    pageIndex: drag.pageIndex,
+    rect: {
+      x: (left / drag.width) * 100,
+      y: (top / drag.height) * 100,
+      width: (width / drag.width) * 100,
+      height: (height / drag.height) * 100,
+    },
+  });
+  renderManualSelections();
+}
+
+function undoManualSelection() {
+  manualSelection.selections.pop();
+  renderManualSelections();
+}
+
+function clearManualSelections() {
+  manualSelection.selections = [];
+  renderManualSelections();
+}
+
+async function saveManualSelections() {
+  const questions = manualSelection.selections.filter((item) => item.type === "question");
+  if (!questions.length) {
+    showManualMessage("Seleciona pelo menos uma pergunta antes de guardar.");
+    return;
+  }
+
+  els.manualSave.disabled = true;
+  els.manualSave.textContent = "A guardar...";
+  showManualMessage("A recortar e ler as perguntas selecionadas...");
+
+  try {
+    const preparedQuestions = [];
+    for (const question of questions) {
+      const page = manualSelection.pages.find((item) => item.index === question.pageIndex);
+      const questionImage = await cropImageDataUrl(page.src, question.rect);
+      const annexes = manualSelection.selections
+        .filter((item) => item.type === "annex" && item.questionNumber === question.questionNumber);
+      const annexImages = [];
+      for (const annex of annexes) {
+        const annexPage = manualSelection.pages.find((item) => item.index === annex.pageIndex);
+        annexImages.push({
+          src: await cropImageDataUrl(annexPage.src, annex.rect),
+          caption: `Anexo da pergunta ${question.questionNumber}`,
+        });
+      }
+      const ocrText = await recognizeSelectionText(questionImage, question.questionNumber);
+      preparedQuestions.push({
+        text: ocrText || `Pergunta ${question.questionNumber} selecionada manualmente. Revê a imagem associada.`,
+        images: [
+          { src: questionImage, caption: `Recorte da pergunta ${question.questionNumber}` },
+          ...annexImages,
+        ],
+        confidence: ocrText ? "Alta" : "Media",
+        analysisNotes: "Pergunta selecionada manualmente pelo aluno.",
+        questionNumber: question.questionNumber,
+      });
+    }
+
+    const metadata = getExerciseMetadataFromForm();
+    if (!metadata.academicYear.trim()) metadata.academicYear = guessCurrentAcademicYear();
+    const added = addExercisesFromForm({
+      ...metadata,
+      sourceType: "Teste/Exame",
+      sourceName: manualSelection.fileName || "Selecao manual",
+      preparedQuestions,
+      exerciseText: preparedQuestions.map((item) => item.text).join("\n\n"),
+    });
+    const topics = [...new Set(added.flatMap((exercise) => exercise.topics))].join(", ");
+    render();
+    activateTab("questions");
+    showImportMessage(`${added.length} perguntas selecionadas manualmente. Temas identificados: ${topics || "por confirmar"}.`);
+  } catch (error) {
+    showManualMessage(`Nao consegui guardar selecoes: ${error.message}`);
+  } finally {
+    els.manualSave.disabled = false;
+    els.manualSave.textContent = "Guardar perguntas selecionadas";
+  }
+}
+
+async function recognizeSelectionText(imageDataUrl, questionNumber) {
+  if (!window.Tesseract) return "";
+  showManualMessage(`A ler texto da pergunta ${questionNumber}...`);
+  const result = await window.Tesseract.recognize(imageDataUrl, "por+eng");
+  return cleanQuestionCandidate((result.data?.text || "").trim());
+}
+
+async function cropImageDataUrl(imageUrl, rect) {
+  const image = await loadImage(imageUrl);
+  const x = Math.max(0, Math.floor((rect.x / 100) * image.naturalWidth));
+  const y = Math.max(0, Math.floor((rect.y / 100) * image.naturalHeight));
+  const width = Math.min(image.naturalWidth - x, Math.max(20, Math.floor((rect.width / 100) * image.naturalWidth)));
+  const height = Math.min(image.naturalHeight - y, Math.max(20, Math.floor((rect.height / 100) * image.naturalHeight)));
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  canvas.width = width;
+  canvas.height = height;
+  context.drawImage(image, x, y, width, height, 0, 0, width, height);
+  return canvas.toDataURL("image/png");
 }
 
 function scheduleCloudSync() {
@@ -2587,9 +2891,18 @@ els.documentFiles.addEventListener("change", () => {
 
   const names = files.map((file) => file.name).join(", ");
   els.documentFileStatus.textContent = `${files.length} ficheiro${files.length > 1 ? "s" : ""} escolhido${files.length > 1 ? "s" : ""}: ${names}`;
-  els.analysisPreview.textContent = "Ficheiro escolhido. A app vai importar, separar perguntas reais e identificar temas.";
-  importDocumentFiles();
+  els.analysisPreview.textContent = "Ficheiro escolhido. Agora podes importar automaticamente ou selecionar perguntas manualmente.";
 });
+
+els.manualSelectButton.addEventListener("click", openManualSelection);
+els.manualQuestionMode.addEventListener("click", () => setManualMode("question"));
+els.manualAnnexMode.addEventListener("click", () => setManualMode("annex"));
+els.manualUndo.addEventListener("click", undoManualSelection);
+els.manualClear.addEventListener("click", clearManualSelections);
+els.manualSave.addEventListener("click", saveManualSelections);
+els.manualPageViewer.addEventListener("mousedown", startManualDrag);
+document.addEventListener("mousemove", updateManualDrag);
+document.addEventListener("mouseup", finishManualDrag);
 
 els.manageSubjectsButton.addEventListener("click", openSubjectModal);
 

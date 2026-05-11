@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>ExamPulse</title>
-    <link rel="stylesheet" href="styles.css?v=16">
+    <link rel="stylesheet" href="styles.css?v=17">
   </head>
   <body>
     <div class="app-shell">
@@ -149,7 +149,26 @@
                   <small id="document-file-status">PDF, Word, TXT ou imagem. Depois a app tenta separar as perguntas reais automaticamente.</small>
                 </div>
                 <button id="document-import-button" class="secondary-button" type="button">Importar e analisar</button>
+                <button id="manual-select-button" class="secondary-button" type="button">Selecionar perguntas manualmente</button>
               </div>
+
+              <section id="manual-selection-panel" class="manual-selection-panel" hidden>
+                <div class="section-heading compact-heading">
+                  <div>
+                    <p class="eyebrow">Selecao manual</p>
+                    <h2>Marca perguntas e anexos no documento</h2>
+                  </div>
+                </div>
+                <div class="manual-tools">
+                  <button class="secondary-button active-tool" id="manual-question-mode" type="button">Pergunta</button>
+                  <button class="secondary-button" id="manual-annex-mode" type="button">Anexo da ultima pergunta</button>
+                  <button class="secondary-button" id="manual-undo" type="button">Desfazer ultima selecao</button>
+                  <button class="danger-button" id="manual-clear" type="button">Limpar selecoes</button>
+                  <button class="primary-button" id="manual-save" type="button">Guardar perguntas selecionadas</button>
+                </div>
+                <p id="manual-selection-status" class="manual-status">Escolhe um PDF ou imagem e abre a selecao manual.</p>
+                <div id="manual-page-viewer" class="manual-page-viewer"></div>
+              </section>
 
               <label class="wide-label">
                 Colar perguntas reais manualmente
@@ -278,6 +297,6 @@
     <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="app.js?v=16"></script>
+    <script src="app.js?v=17"></script>
   </body>
 </html>
