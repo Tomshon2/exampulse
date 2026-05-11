@@ -1181,13 +1181,13 @@ function renderManualSelections() {
     box.style.top = `${selection.rect.y}%`;
     box.style.width = `${selection.rect.width}%`;
     box.style.height = `${selection.rect.height}%`;
-    box.innerHTML = `<span>${selection.type === "annex" ? `Anexo ${selection.questionNumber}` : `Pergunta ${selection.questionNumber}`}</span>`;
+    box.innerHTML = `<span>${selection.type === "annex" ? "Anexo geral" : `Pergunta ${selection.questionNumber}`}</span>`;
     overlay.append(box);
   }
 
   const questionCount = manualSelection.selections.filter((item) => item.type === "question").length;
   const annexCount = manualSelection.selections.filter((item) => item.type === "annex").length;
-  els.manualSelectionStatus.textContent = `${questionCount} pergunta${questionCount === 1 ? "" : "s"} selecionada${questionCount === 1 ? "" : "s"}; ${annexCount} anexo${annexCount === 1 ? "" : "s"} ligado${annexCount === 1 ? "" : "s"}.`;
+  els.manualSelectionStatus.textContent = `${questionCount} pergunta${questionCount === 1 ? "" : "s"} selecionada${questionCount === 1 ? "" : "s"}; ${annexCount} anexo${annexCount === 1 ? "" : "s"} geral${annexCount === 1 ? "" : "is"}.`;
 }
 
 function setManualMode(mode) {
@@ -1196,7 +1196,7 @@ function setManualMode(mode) {
   els.manualAnnexMode.classList.toggle("active-tool", mode === "annex");
   const message = mode === "question"
     ? "Modo pergunta: a proxima caixa cria a pergunta seguinte."
-    : "Modo anexo: a proxima caixa fica ligada a ultima pergunta selecionada.";
+    : "Modo anexo geral: a proxima caixa fica ligada ao documento inteiro, nao a uma pergunta especifica.";
   els.manualSelectionStatus.textContent = message;
 }
 
@@ -1258,16 +1258,9 @@ function finishManualDrag(event) {
   }
 
   const questionCount = manualSelection.selections.filter((item) => item.type === "question").length;
-  const lastQuestion = [...manualSelection.selections].reverse().find((item) => item.type === "question");
-  if (manualSelection.mode === "annex" && !lastQuestion) {
-    showManualMessage("Seleciona primeiro uma pergunta antes de marcar anexos.");
-    renderManualSelections();
-    return;
-  }
-
   const questionNumber = manualSelection.mode === "question"
     ? questionCount + 1
-    : lastQuestion.questionNumber;
+    : null;
 
   manualSelection.selections.push({
     id: crypto.randomUUID(),
@@ -1301,41 +1294,58 @@ async function saveManualSelections() {
     return;
   }
 
+  const metadata = getExerciseMetadataFromForm();
+  if (!metadata.academicYear.trim()) {
+    showManualMessage("Preenche a data/ano do teste antes de guardar as perguntas.");
+    return;
+  }
+
   els.manualSave.disabled = true;
   els.manualSave.textContent = "A guardar...";
   showManualMessage("A recortar e ler as perguntas selecionadas...");
 
   try {
     const preparedQuestions = [];
+    let ocrFailures = 0;
+    const annexes = manualSelection.selections.filter((item) => item.type === "annex");
+    const generalAnnexImages = [];
+
+    for (let index = 0; index < annexes.length; index += 1) {
+      const annex = annexes[index];
+      const annexPage = manualSelection.pages.find((item) => item.index === annex.pageIndex);
+      if (!annexPage) continue;
+      generalAnnexImages.push({
+        src: await cropImageDataUrl(annexPage.src, annex.rect),
+        caption: `Anexo geral ${index + 1}`,
+      });
+    }
+
     for (const question of questions) {
       const page = manualSelection.pages.find((item) => item.index === question.pageIndex);
+      if (!page) continue;
       const questionImage = await cropImageDataUrl(page.src, question.rect);
-      const annexes = manualSelection.selections
-        .filter((item) => item.type === "annex" && item.questionNumber === question.questionNumber);
-      const annexImages = [];
-      for (const annex of annexes) {
-        const annexPage = manualSelection.pages.find((item) => item.index === annex.pageIndex);
-        annexImages.push({
-          src: await cropImageDataUrl(annexPage.src, annex.rect),
-          caption: `Anexo da pergunta ${question.questionNumber}`,
-        });
+      let ocrText = "";
+      try {
+        ocrText = await recognizeSelectionText(questionImage, question.questionNumber);
+      } catch {
+        ocrFailures += 1;
       }
-      const ocrText = await recognizeSelectionText(questionImage, question.questionNumber);
       preparedQuestions.push({
         text: ocrText || `Pergunta ${question.questionNumber} selecionada manualmente. Revê a imagem associada.`,
         images: [
           { src: questionImage, caption: `Recorte da pergunta ${question.questionNumber}` },
-          ...annexImages,
+          ...generalAnnexImages,
         ],
         confidence: ocrText ? "Alta" : "Media",
-        analysisNotes: "Pergunta selecionada manualmente pelo aluno.",
+        analysisNotes: ocrText
+          ? "Pergunta selecionada manualmente pelo aluno."
+          : "OCR nao conseguiu ler texto suficiente; usa a imagem da pergunta como referencia.",
         questionNumber: question.questionNumber,
       });
     }
 
-    const metadata = getExerciseMetadataFromForm();
-    if (!metadata.academicYear.trim()) {
-      showManualMessage("Preenche a data/ano do teste antes de guardar as perguntas.");
+    if (!preparedQuestions.length) {
+      showManualMessage("Nao encontrei caixas de pergunta validas para guardar.");
       return;
     }
     const added = addExercisesFromForm({
@@ -1347,8 +1357,14 @@ async function saveManualSelections() {
     });
     const topics = [...new Set(added.flatMap((exercise) => exercise.topics))].join(", ");
     render();
-    activateTab("questions");
-    showImportMessage(`${added.length} perguntas selecionadas manualmente. Temas identificados: ${topics || "por confirmar"}.`);
+    if (added.length) {
+      activateTab("questions");
+      const annexNote = generalAnnexImages.length ? ` ${generalAnnexImages.length} anexo${generalAnnexImages.length === 1 ? "" : "s"} geral${generalAnnexImages.length === 1 ? "" : "is"} guardado${generalAnnexImages.length === 1 ? "" : "s"} junto das perguntas.` : "";
+      const ocrNote = ocrFailures ? ` OCR falhou em ${ocrFailures} pergunta${ocrFailures === 1 ? "" : "s"}, mas guardei o recorte da imagem.` : "";
+      showImportMessage(`${added.length} perguntas selecionadas manualmente.${annexNote} Temas identificados: ${topics || "por definir"}.${ocrNote}`);
+    } else {
+      showImportMessage("Nenhuma pergunta nova guardada. Pode ser duplicado de algo que ja tinhas importado.");
+    }
   } catch (error) {
     showManualMessage(`Nao consegui guardar selecoes: ${error.message}`);
   } finally {

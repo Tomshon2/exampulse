@@ -80,6 +80,11 @@ Regra: sempre que houver uma mudanca relevante no sistema, atualizar este fichei
   - ao escolher um documento, abre logo a selecao manual;
   - a opcao de analise automatica deixou de estar disponivel na interface;
   - tipos de avaliacao reduzidos a Frequencia 1, Frequencia 2, Exame e Recurso.
+- Fluxo de selecao manual afinado:
+  - removida a area para colar perguntas manualmente;
+  - removido o botao antigo de analisar texto colado;
+  - anexos passaram a ser anexos gerais do documento/teste, nao anexos da ultima pergunta;
+  - guardar perguntas selecionadas continua a guardar o recorte da imagem mesmo quando o OCR falha.
 - Interface limpa:
   - removidos campos de notas de estudo e estrutura sugerida de resposta;
   - removida apresentacao de conceitos/tokens frequentes;
