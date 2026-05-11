@@ -76,6 +76,10 @@ Regra: sempre que houver uma mudanca relevante no sistema, atualizar este fichei
   - anexos podem ser marcados e ficam ligados a ultima pergunta;
   - permite desfazer a ultima selecao, limpar selecoes e guardar perguntas selecionadas;
   - recorta as areas selecionadas e usa OCR no recorte da pergunta.
+- Fluxo de importacao simplificado:
+  - ao escolher um documento, abre logo a selecao manual;
+  - a opcao de analise automatica deixou de estar disponivel na interface;
+  - tipos de avaliacao reduzidos a Frequencia 1, Frequencia 2, Exame e Recurso.
 
 ### Documentacao
 

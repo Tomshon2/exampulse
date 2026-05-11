@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>ExamPulse</title>
-    <link rel="stylesheet" href="styles.css?v=17">
+    <link rel="stylesheet" href="styles.css?v=18">
   </head>
   <body>
     <div class="app-shell">
@@ -97,8 +97,8 @@
             <form id="exercise-form" class="entry-form" onsubmit="return false">
               <div class="section-heading compact-heading">
                 <div>
-                  <p class="eyebrow">Importar e analisar</p>
-                  <h2>Adicionar exames antigos</h2>
+                  <p class="eyebrow">Importar documento</p>
+                  <h2>Selecionar perguntas reais</h2>
                 </div>
               </div>
               <div class="form-grid">
@@ -133,23 +133,20 @@
                 <label>
                   Tipo de avaliacao
                   <select name="assessment">
-                    <option>Exame normal</option>
+                    <option>Frequencia 1</option>
+                    <option>Frequencia 2</option>
+                    <option>Exame</option>
                     <option>Recurso</option>
-                    <option>Frequencia</option>
-                    <option>Teste</option>
-                    <option>Outro</option>
                   </select>
                 </label>
               </div>
 
               <div class="document-import">
                 <div class="file-drop">
-                  <label for="document-file">Escolher exames ou testes</label>
+                  <label for="document-file">Importar documento</label>
                   <input id="document-file" type="file" accept=".txt,.md,.pdf,.docx,.png,.jpg,.jpeg,.webp,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,image/webp" multiple>
-                  <small id="document-file-status">PDF, Word, TXT ou imagem. Depois a app tenta separar as perguntas reais automaticamente.</small>
+                  <small id="document-file-status">PDF ou imagem. Ao escolher, a pagina de selecao abre automaticamente.</small>
                 </div>
-                <button id="document-import-button" class="secondary-button" type="button">Importar e analisar</button>
-                <button id="manual-select-button" class="secondary-button" type="button">Selecionar perguntas manualmente</button>
               </div>
 
               <section id="manual-selection-panel" class="manual-selection-panel" hidden>
@@ -166,7 +163,7 @@
                   <button class="danger-button" id="manual-clear" type="button">Limpar selecoes</button>
                   <button class="primary-button" id="manual-save" type="button">Guardar perguntas selecionadas</button>
                 </div>
-                <p id="manual-selection-status" class="manual-status">Escolhe um PDF ou imagem e abre a selecao manual.</p>
+                <p id="manual-selection-status" class="manual-status">Escolhe um PDF ou imagem para abrir a selecao.</p>
                 <div id="manual-page-viewer" class="manual-page-viewer"></div>
               </section>
 
@@ -176,15 +173,15 @@
               </label>
 
               <div class="form-footer">
-                <p id="analysis-preview">Depois da analise aparece aqui o resumo da importacao.</p>
+                <p id="analysis-preview">Depois de escolheres um documento, marca as perguntas e anexos por caixas.</p>
                 <button class="primary-button" type="submit">Analisar e guardar</button>
               </div>
             </form>
 
             <aside class="insight-panel">
-              <h2>Como a app trata o documento</h2>
-              <p class="muted-copy">A app procura cabecalhos de teste/exame, numeracao, espacamentos e quebras visuais para separar perguntas reais. Quando houver duvidas, marca a pergunta para revisao.</p>
-              <p class="muted-copy">Em PDFs ou imagens digitalizadas tenta ainda recortar a zona visual da pergunta para manter figuras associadas ao enunciado.</p>
+              <h2>Como marcar o documento</h2>
+              <p class="muted-copy">Ao importar um PDF ou imagem, desenha uma caixa sobre cada pergunta. A primeira fica como pergunta 1, a segunda como pergunta 2, e assim por diante.</p>
+              <p class="muted-copy">Usa o modo anexo para selecionar figuras ou anexos que devem ficar sempre juntos da ultima pergunta marcada.</p>
             </aside>
           </div>
         </section>
@@ -297,6 +294,6 @@
     <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="app.js?v=17"></script>
+    <script src="app.js?v=18"></script>
   </body>
 </html>

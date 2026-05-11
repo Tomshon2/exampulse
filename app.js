@@ -147,8 +147,6 @@ const els = {
   saveAdvice: document.querySelector("#save-advice"),
   documentFiles: document.querySelector("#document-file"),
   documentFileStatus: document.querySelector("#document-file-status"),
-  documentImportButton: document.querySelector("#document-import-button"),
-  manualSelectButton: document.querySelector("#manual-select-button"),
   manualSelectionPanel: document.querySelector("#manual-selection-panel"),
   manualQuestionMode: document.querySelector("#manual-question-mode"),
   manualAnnexMode: document.querySelector("#manual-annex-mode"),
@@ -872,9 +870,10 @@ function detectDocumentType(text, fileName = "") {
 
 function inferAssessmentFromHeader(header) {
   if (header.includes("recurso")) return "Recurso";
-  if (header.includes("frequencia") || /\bfreq/.test(header)) return "Frequencia";
+  if (header.includes("2") && (header.includes("frequencia") || /\bfreq/.test(header))) return "Frequencia 2";
+  if (header.includes("frequencia") || /\bfreq/.test(header)) return "Frequencia 1";
   if (header.includes("teste")) return "Teste";
-  if (header.includes("exame")) return "Exame normal";
+  if (header.includes("exame")) return "Exame";
   return "";
 }
 
@@ -1001,8 +1000,6 @@ async function importDocumentFiles() {
     metadata.academicYear = guessCurrentAcademicYear();
   }
 
-  els.documentImportButton.disabled = true;
-  els.documentImportButton.textContent = "A analisar...";
   showImportMessage(`A ler ${files.length} ficheiro${files.length > 1 ? "s" : ""}...`);
 
   try {
@@ -1056,9 +1053,8 @@ async function importDocumentFiles() {
     const sourceNote = sourceTypes.size ? ` Tipo detetado: ${[...sourceTypes].join(", ")}.` : "";
     const lowConfidence = getSubject().exercises.filter((exercise) => exercise.confidence === "Baixa").length;
     showImportMessage(`${totalExercises} perguntas reais importadas.${sourceNote} Temas identificados/criados: ${[...topicNames].join(", ")}. Perguntas para rever: ${lowConfidence}.${duplicateNote}${failedNote}`);
-  } finally {
-    els.documentImportButton.disabled = false;
-    els.documentImportButton.textContent = "Importar e analisar";
+  } catch (error) {
+    showImportMessage(`Nao consegui importar automaticamente: ${error.message}`);
   }
 }
 
@@ -1068,7 +1064,7 @@ function getExerciseMetadataFromForm() {
     academicYear: formData.academicYear || "",
     semester: formData.semester || "1",
     month: formData.month || "Janeiro",
-    assessment: formData.assessment || "Exame normal",
+    assessment: formData.assessment || "Frequencia 1",
   };
 }
 
@@ -1107,8 +1103,6 @@ async function openManualSelection() {
   }
 
   els.manualSelectionPanel.hidden = false;
-  els.manualSelectButton.disabled = true;
-  els.manualSelectButton.textContent = "A preparar...";
   showManualMessage("A preparar paginas para selecao manual...");
 
   try {
@@ -1121,9 +1115,6 @@ async function openManualSelection() {
     showManualMessage("Arrasta uma caixa sobre cada pergunta. As perguntas ficam numeradas pela ordem em que as selecionas.");
   } catch (error) {
     showManualMessage(`Nao consegui abrir selecao manual: ${error.message}`);
-  } finally {
-    els.manualSelectButton.disabled = false;
-    els.manualSelectButton.textContent = "Selecionar perguntas manualmente";
   }
 }
 
@@ -2849,7 +2840,7 @@ function addSampleData() {
       academicYear: year,
       semester: "1",
       month: index % 2 ? "Junho" : "Janeiro",
-      assessment: index % 2 ? "Recurso" : "Exame normal",
+      assessment: index % 2 ? "Recurso" : "Exame",
       exerciseText: SAMPLE_EXERCISES,
     });
   });
@@ -2876,8 +2867,6 @@ els.subjectForm.addEventListener("submit", (event) => {
   render();
 });
 
-els.documentImportButton.addEventListener("click", importDocumentFiles);
-
 els.generateAdvice.addEventListener("click", generateSubjectAdvice);
 
 els.saveAdvice.addEventListener("click", saveSubjectAdvice);
@@ -2885,16 +2874,16 @@ els.saveAdvice.addEventListener("click", saveSubjectAdvice);
 els.documentFiles.addEventListener("change", () => {
   const files = [...(els.documentFiles.files || [])];
   if (!files.length) {
-    els.documentFileStatus.textContent = "PDF, Word, TXT ou imagem. Depois a app tenta separar as perguntas reais automaticamente.";
+    els.documentFileStatus.textContent = "PDF ou imagem. Ao escolher, a pagina de selecao abre automaticamente.";
     return;
   }
 
   const names = files.map((file) => file.name).join(", ");
   els.documentFileStatus.textContent = `${files.length} ficheiro${files.length > 1 ? "s" : ""} escolhido${files.length > 1 ? "s" : ""}: ${names}`;
-  els.analysisPreview.textContent = "Ficheiro escolhido. Agora podes importar automaticamente ou selecionar perguntas manualmente.";
+  els.analysisPreview.textContent = "Ficheiro escolhido. A abrir selecao de perguntas...";
+  openManualSelection();
 });
 
-els.manualSelectButton.addEventListener("click", openManualSelection);
 els.manualQuestionMode.addEventListener("click", () => setManualMode("question"));
 els.manualAnnexMode.addEventListener("click", () => setManualMode("annex"));
 els.manualUndo.addEventListener("click", undoManualSelection);
