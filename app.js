@@ -164,6 +164,7 @@ const els = {
   filters: {
     topic: document.querySelector("#question-filter-topic"),
     year: document.querySelector("#question-filter-year"),
+    semester: document.querySelector("#question-filter-semester"),
     assessment: document.querySelector("#question-filter-assessment"),
     status: document.querySelector("#question-filter-status"),
   },
@@ -2144,6 +2145,7 @@ function renderPredictions(predictions) {
       <p class="prediction-reason">Conceitos frequentes: ${escapeHtml(prediction.topKeywords.slice(0, 5).join(", ") || "ainda poucos dados")}</p>
       <div class="solution-actions">
         <button class="secondary-button" type="button" data-filter-topic="${escapeHtml(prediction.topic)}">Ver perguntas reais</button>
+        <button class="secondary-button" type="button" data-generate-topic="${escapeHtml(prediction.topic)}">Gerar exemplo provavel</button>
       </div>
     `;
     els.predictionList.append(card);
@@ -2187,19 +2189,23 @@ function renderQuestionFilters(subject) {
   const current = {
     topic: els.filters.topic.value,
     year: els.filters.year.value,
+    semester: els.filters.semester.value,
     assessment: els.filters.assessment.value,
     status: els.filters.status.value,
   };
   const topics = [...new Set(subject.exercises.flatMap((exercise) => exercise.topics || []))].sort();
   const years = [...new Set(subject.exercises.map((exercise) => exercise.academicYear).filter(Boolean))].sort().reverse();
+  const semesters = [...new Set(subject.exercises.map((exercise) => exercise.semester).filter(Boolean))].sort();
   const assessments = [...new Set(subject.exercises.map((exercise) => exercise.assessment).filter(Boolean))].sort();
 
   fillSelect(els.filters.topic, topics, "Todos");
   fillSelect(els.filters.year, years, "Todos");
+  fillSelect(els.filters.semester, semesters, "Todos");
   fillSelect(els.filters.assessment, assessments, "Todas");
 
   els.filters.topic.value = topics.includes(current.topic) ? current.topic : "";
   els.filters.year.value = years.includes(current.year) ? current.year : "";
+  els.filters.semester.value = semesters.includes(current.semester) ? current.semester : "";
   els.filters.assessment.value = assessments.includes(current.assessment) ? current.assessment : "";
   els.filters.status.value = current.status || "";
 }
@@ -2223,6 +2229,7 @@ function getQuestionFilters() {
   return {
     topic: els.filters.topic?.value || "",
     year: els.filters.year?.value || "",
+    semester: els.filters.semester?.value || "",
     assessment: els.filters.assessment?.value || "",
     status: els.filters.status?.value || "",
   };
@@ -2231,41 +2238,18 @@ function getQuestionFilters() {
 function matchesQuestionFilters(exercise, filters) {
   if (filters.topic && !(exercise.topics || []).includes(filters.topic)) return false;
   if (filters.year && exercise.academicYear !== filters.year) return false;
+  if (filters.semester && exercise.semester !== filters.semester) return false;
   if (filters.assessment && exercise.assessment !== filters.assessment) return false;
+  if (filters.status === "answered" && !exercise.solution) return false;
+  if (filters.status === "unanswered" && exercise.solution) return false;
   if (filters.status === "with-solution" && !exercise.solution) return false;
   if (filters.status === "without-solution" && exercise.solution) return false;
   if (filters.status === "with-image" && !(exercise.images || []).length) return false;
   if (filters.status === "without-image" && (exercise.images || []).length) return false;
+  if (filters.status === "with-notes" && !exercise.notes) return false;
+  if (filters.status === "without-notes" && exercise.notes) return false;
   if (filters.status === "low-confidence" && exercise.confidence !== "Baixa") return false;
   return true;
-}
-
-function renderHistory(subject) {
-  els.historyList.innerHTML = "";
-
-  if (!subject.exercises.length) {
-    els.historyList.append(emptyState());
-    return;
-  }
-
-  for (const exercise of subject.exercises) {
-    const card = document.createElement("article");
-    card.className = "history-card";
-    card.innerHTML = `
-      <header>
-        <div>
-          <strong>${escapeHtml(exercise.topics.join(" + "))}</strong>
-          <div class="mini-label">${escapeHtml(exercise.academicYear)} · ${escapeHtml(exercise.semester)}. semestre · ${escapeHtml(exercise.month)} · ${escapeHtml(exercise.assessment)}</div>
-        </div>
-      </header>
-      <p>${escapeHtml(exercise.text)}</p>
-      <div class="prediction-meta">
-        <span class="pill">${escapeHtml(exercise.type)}</span>
-        <span class="pill">${escapeHtml(exercise.difficulty)}</span>
-      </div>
-    `;
-    els.historyList.append(card);
-  }
 }
 
 function emptyState() {
@@ -2332,6 +2316,10 @@ function renderExercisesByDocument(subject, documentKey = "") {
         <label class="solution-editor">
           Resolucao do aluno
           <textarea data-solution="${exercise.id}" rows="4" placeholder="Escreve aqui a resolucao completa desta pergunta...">${escapeHtml(exercise.solution || "")}</textarea>
+        </label>
+        <label class="solution-editor">
+          Notas de estudo
+          <textarea data-notes="${exercise.id}" rows="3" placeholder="Notas, duvidas, erros comuns ou pistas do professor...">${escapeHtml(exercise.notes || "")}</textarea>
         </label>
         <div class="answer-structure">
           <strong>Estrutura de resposta sugerida</strong>
@@ -2414,6 +2402,32 @@ function generateExampleTest(mode) {
   activateTab("themes");
 }
 
+function generateTopicExample(topicName) {
+  const subject = getSubject();
+  const prediction = calculatePredictions(subject).find((item) => item.topic === topicName);
+  if (!prediction) return;
+
+  const evidence = prediction.examples?.slice(0, 3)
+    .map((exercise, index) => `${index + 1}. ${clip(cleanExerciseText(exercise.text), 260)}`)
+    .join("\n\n");
+  const output = [
+    `Exemplo provavel - ${prediction.topic}`,
+    "Tipo: simulacao informada por perguntas reais anteriores.",
+    buildPredictionExplanation(prediction),
+    "",
+    `Enunciado sugerido: ${prediction.likelyExercise.prompt}`,
+    "",
+    "Base historica usada:",
+    evidence || prediction.likelyExercise.evidence,
+  ].join("\n");
+
+  if (els.generatedTestOutput) {
+    els.generatedTestOutput.value = output;
+  }
+  els.analysisPreview.textContent = "Exemplo provavel gerado para o tema escolhido.";
+  activateTab("themes");
+}
+
 function getDocumentKey(exercise) {
   return [
     exercise.sourceName || "manual",
@@ -2428,70 +2442,6 @@ function getDocumentLabel(exercise) {
   const assessment = exercise.assessment || exercise.sourceType || "Documento";
   const year = exercise.academicYear || "";
   return `${assessment} ${year}`.trim() + (source ? ` · ${source}` : "");
-}
-
-function renderExercisesByTopic(subject) {
-  els.historyList.innerHTML = "";
-
-  if (!subject.exercises.length) {
-    els.historyList.append(emptyState());
-    return;
-  }
-
-  const byTopic = new Map();
-
-  for (const exercise of subject.exercises) {
-    const primaryTopic = exercise.topics?.[0] || "Tema por confirmar";
-    if (!byTopic.has(primaryTopic)) byTopic.set(primaryTopic, []);
-    byTopic.get(primaryTopic).push(exercise);
-  }
-
-  const sortedGroups = [...byTopic.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
-
-  for (const [topic, exercises] of sortedGroups) {
-    const group = document.createElement("section");
-    group.className = "topic-group";
-    group.innerHTML = `
-      <header class="topic-group-header">
-        <div>
-          <h3>${escapeHtml(topic)}</h3>
-          <p>${exercises.length} exercicio${exercises.length > 1 ? "s" : ""} guardado${exercises.length > 1 ? "s" : ""} neste tema</p>
-        </div>
-      </header>
-      <div class="topic-exercises"></div>
-    `;
-
-    const list = group.querySelector(".topic-exercises");
-    for (const exercise of exercises) {
-      const card = document.createElement("article");
-      card.className = "history-card";
-      card.innerHTML = `
-        <header>
-          <div>
-            <strong>${escapeHtml(exercise.type || "Exercicio")}</strong>
-            <div class="mini-label">${escapeHtml(exercise.sourceType || "Documento")}</div>
-            <div class="mini-label">${escapeHtml(exercise.academicYear)} · ${escapeHtml(exercise.semester)}. semestre · ${escapeHtml(exercise.month)} · ${escapeHtml(exercise.assessment)}</div>
-          </div>
-        </header>
-        <p>${escapeHtml(cleanExerciseText(exercise.text))}</p>
-        <label class="solution-editor">
-          Resolucao do exercicio
-          <textarea data-solution="${exercise.id}" rows="4" placeholder="Escreve aqui a resolucao completa deste exercicio...">${escapeHtml(exercise.solution || "")}</textarea>
-        </label>
-        <div class="solution-actions">
-          <button class="secondary-button" type="button" data-save-solution="${exercise.id}">Guardar resolucao</button>
-        </div>
-        <div class="prediction-meta">
-          <span class="pill">${escapeHtml(exercise.difficulty)}</span>
-          <span class="pill">${escapeHtml(exercise.sourceType || "Documento")}</span>
-          <span class="pill">${escapeHtml((exercise.keywords || []).slice(0, 3).join(", ") || topic)}</span>
-        </div>
-      `;
-      list.append(card);
-    }
-
-    els.historyList.append(group);
-  }
 }
 
 function clip(text, maxLength) {
@@ -2540,12 +2490,14 @@ function saveExerciseSolution(exerciseId) {
   const subject = getSubject();
   const exercise = subject.exercises.find((item) => item.id === exerciseId);
   const textarea = els.historyList.querySelector(`[data-solution="${CSS.escape(exerciseId)}"]`);
+  const notes = els.historyList.querySelector(`[data-notes="${CSS.escape(exerciseId)}"]`);
 
   if (!exercise || !textarea) return;
 
   exercise.solution = textarea.value.trim();
+  exercise.notes = notes?.value.trim() || "";
   persist();
-  els.analysisPreview.textContent = "Resolucao guardada.";
+  els.analysisPreview.textContent = "Resolucao e notas guardadas.";
 }
 
 async function clearCurrentSubjectData() {
@@ -2683,7 +2635,7 @@ document.querySelector(".tabs").addEventListener("click", (event) => {
 });
 
 document.addEventListener("click", (event) => {
-  const target = event.target.closest("[data-go-tab], [data-filter-topic], [data-open-document]");
+  const target = event.target.closest("[data-go-tab], [data-filter-topic], [data-generate-topic], [data-open-document]");
   if (!target) return;
 
   if (target.dataset.goTab) {
@@ -2696,6 +2648,10 @@ document.addEventListener("click", (event) => {
       els.filters.topic.value = target.dataset.filterTopic;
       renderExercisesByDocument(getSubject());
     }
+  }
+
+  if (target.dataset.generateTopic) {
+    generateTopicExample(target.dataset.generateTopic);
   }
 
   if (target.dataset.openDocument) {

@@ -64,8 +64,12 @@ Regra: sempre que houver uma mudanca relevante no sistema, atualizar este fichei
 - Linguagem trocada de "exercicios" para "perguntas reais" onde isso evita ambiguidade.
 - Ranking de temas agora mostra explicacao, nao apenas percentagem.
 - Pagina de perguntas reais tem filtros por tema, ano, avaliacao, estado da resolucao, imagem e confianca baixa.
+- Filtros completados com semestre, respondidas/nao respondidas, notas e imagem.
+- Cada pergunta real pode guardar resolucao do aluno e notas de estudo separadas.
 - Pagina de documentos analisados mostra origem, ano, tipo, numero de perguntas, temas e perguntas a rever.
+- Cada tema provavel tem acao para ver perguntas reais associadas e gerar um exemplo provavel desse tema.
 - Plano de estudo estruturado com prioridade, ordem sugerida, proximos passos, metas semanais, temas fortes e temas ausentes.
+- Funcoes antigas de historico por "exercicios" foram removidas para evitar regressao de linguagem e fluxo.
 
 ### Documentacao
 
